@@ -32,6 +32,7 @@ type logsOptions struct {
 	tool       string
 	status     string
 	source     string
+	tunnel     string
 	event      string
 	grep       string
 }
@@ -78,6 +79,7 @@ func addLogsCompletions(cmd *cobra.Command) {
 	})
 	_ = cmd.RegisterFlagCompletionFunc("level", completeStatic("debug", "info", "warn", "error"))
 	_ = cmd.RegisterFlagCompletionFunc("component", completeStatic("SERVER", "TUNNEL", "CONFIG", "MCP", "TOOL", "UPSTREAM", "SESSION", "SERVICE"))
+	_ = cmd.RegisterFlagCompletionFunc("tunnel", completeTunnelFilter)
 }
 
 func clearRuntimeLogs(cmd *cobra.Command) error { return application.ClearLogs(cmd.Context()) }
@@ -99,6 +101,7 @@ func addLogsFlags(cmd *cobra.Command, options *logsOptions, includeFollow bool) 
 	cmd.Flags().StringVar(&options.tool, "tool", "", "filter by tool name")
 	cmd.Flags().StringVar(&options.status, "status", "", "filter by status")
 	cmd.Flags().StringVar(&options.source, "source", "", "filter by source")
+	cmd.Flags().StringVar(&options.tunnel, "tunnel", "", "filter by tunnel ID or cached label")
 	cmd.Flags().StringVar(&options.event, "event", "", "filter by event-name glob")
 	cmd.Flags().StringVar(&options.grep, "grep", "", "filter by case-insensitive text")
 }
@@ -151,7 +154,7 @@ func runLogs(cmd *cobra.Command, options logsOptions) error {
 }
 
 func logsQueryOptions(options logsOptions) application.LogsQueryOptions {
-	return application.LogsQueryOptions{Tail: options.tail, All: options.all, Since: options.since, Until: options.until, Session: options.session, Level: options.level, Components: options.components, Workspace: options.workspace, Tool: options.tool, Status: options.status, Source: options.source, Event: options.event, Grep: options.grep}
+	return application.LogsQueryOptions{Tail: options.tail, All: options.all, Since: options.since, Until: options.until, Session: options.session, Level: options.level, Components: options.components, Workspace: options.workspace, Tool: options.tool, Status: options.status, Source: options.source, Tunnel: options.tunnel, Event: options.event, Grep: options.grep}
 }
 
 func logsVisibility(cmd *cobra.Command) logger.Visibility {

@@ -3,9 +3,10 @@ package trace
 import (
 	"context"
 	"fmt"
-	"net/url"
 	"strings"
 	"time"
+
+	"go.mewis.me/chatgpt-mcp/internal/redact"
 )
 
 type Phase string
@@ -135,29 +136,7 @@ func Any(key string, value any) Field                  { return Field{Key: key, 
 func Sensitive(key string, value any) Field            { return Field{Key: key, Value: configuredState(value)} }
 func URL(key, value string) Field                      { return Field{Key: key, Value: SanitizeURL(value)} }
 
-func SanitizeURL(raw string) string {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return raw
-	}
-	parsed, err := url.Parse(raw)
-	if err != nil {
-		return raw
-	}
-	parsed.User = nil
-	query := parsed.Query()
-	for key, values := range query {
-		if !sensitiveQueryKey(key) {
-			continue
-		}
-		for index := range values {
-			values[index] = "<redacted>"
-		}
-		query[key] = values
-	}
-	parsed.RawQuery = query.Encode()
-	return parsed.String()
-}
+func SanitizeURL(raw string) string { return redact.URL(raw) }
 
 func normalizeEvent(event Event) Event {
 	event.Component = strings.TrimSpace(event.Component)
@@ -168,7 +147,7 @@ func normalizeEvent(event Event) Event {
 	if event.Name == "" {
 		event.Name = "trace.event"
 	}
-	event.Message = strings.TrimSpace(event.Message)
+	event.Message = redact.Text(strings.TrimSpace(event.Message))
 	if event.Message == "" {
 		event.Message = event.Name
 	}
@@ -178,10 +157,12 @@ func normalizeEvent(event Event) Event {
 	for index, field := range event.Fields {
 		key := strings.TrimSpace(field.Key)
 		value := field.Value
-		if sensitiveKey(key) {
+		if redact.SensitiveKey(key) {
 			value = configuredState(value)
 		} else if looksLikeURLKey(key) {
 			value = SanitizeURL(fmt.Sprint(value))
+		} else {
+			value = redact.Value(key, value)
 		}
 		event.Fields[index] = Field{Key: key, Value: value}
 	}
@@ -215,29 +196,6 @@ func configuredState(value any) string {
 	return "configured"
 }
 
-func sensitiveKey(key string) bool {
-	key = strings.ToLower(strings.TrimSpace(key))
-	key = strings.NewReplacer("-", "_", ".", "_", " ", "_").Replace(key)
-	if key == "authorization" || key == "cookie" || key == "set_cookie" || key == "token" || key == "oauth_code" || key == "oauth_state" {
-		return true
-	}
-	for _, fragment := range []string{"access_token", "refresh_token", "bearer_token", "client_secret", "admin_key", "runtime_api_key", "api_key", "apikey", "token_hash", "password", "signature", "credential"} {
-		if strings.Contains(key, fragment) {
-			return true
-		}
-	}
-	return false
-}
-
-func sensitiveQueryKey(key string) bool {
-	key = strings.ToLower(strings.TrimSpace(key))
-	key = strings.NewReplacer("-", "_", ".", "_", " ", "_").Replace(key)
-	if sensitiveKey(key) {
-		return true
-	}
-	return key == "token" || key == "code" || key == "state" || key == "sig" || strings.HasSuffix(key, "_token") || strings.HasSuffix(key, "_signature")
-}
-
 func looksLikeURLKey(key string) bool {
 	key = strings.ToLower(strings.TrimSpace(key))
 	return key == "url" || key == "endpoint" || strings.HasSuffix(key, "_url") || strings.HasSuffix(key, "_endpoint")
@@ -247,24 +205,5 @@ func sanitizeError(err error) string {
 	if err == nil {
 		return ""
 	}
-	text := err.Error()
-	for _, marker := range []string{"http://", "https://"} {
-		start := 0
-		for {
-			index := strings.Index(text[start:], marker)
-			if index < 0 {
-				break
-			}
-			index += start
-			end := index
-			for end < len(text) && !strings.ContainsRune(" \t\r\n)]}\"'", rune(text[end])) {
-				end++
-			}
-			raw := text[index:end]
-			clean := SanitizeURL(raw)
-			text = text[:index] + clean + text[end:]
-			start = index + len(clean)
-		}
-	}
-	return text
+	return redact.Text(err.Error())
 }

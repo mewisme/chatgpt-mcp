@@ -10,6 +10,7 @@ import (
 	"golang.org/x/term"
 
 	"go.mewis.me/chatgpt-mcp/internal/config"
+	"go.mewis.me/chatgpt-mcp/internal/state"
 )
 
 func TerminalIO(in io.Reader, out io.Writer) bool {
@@ -24,6 +25,9 @@ func Run(ctx context.Context, route Route, in io.Reader, out io.Writer) error {
 	}
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	if lock, err := state.HoldTUIPresence(); err == nil {
+		defer lock.Release()
 	}
 	_, err := tea.NewProgram(NewModelWithState(ctx, route, config.RootPath()), tea.WithContext(ctx), tea.WithInput(in), tea.WithOutput(out)).Run()
 	return err

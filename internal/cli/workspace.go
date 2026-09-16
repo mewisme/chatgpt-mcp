@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -23,6 +24,7 @@ func workspaceCommand() *cobra.Command {
 		workspaceShowCommand(),
 		workspaceRelocateCommand(),
 		workspaceUnregisterCommand(),
+		workspaceDeleteStateCommand(),
 		workspaceAccessCommand(),
 		workspaceContainerCommand(),
 	)
@@ -33,7 +35,7 @@ func workspaceRelocateCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:               "relocate <workspace_id> <path>",
 		Aliases:           []string{"move"},
-		Short:             "Rebind a registered workspace after its project directory moved",
+		Short:             "Rebind a registered workspace after its project directory moved, preserving its identity",
 		Args:              cobra.ExactArgs(2),
 		ValidArgsFunction: completeWorkspaceThenDirectory,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -289,7 +291,7 @@ func workspaceAccessCommand() *cobra.Command {
 func workspaceRegisterCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:               "register [path]",
-		Short:             "Register a canonical workspace root and return its stable workspace_id",
+		Short:             "Register a workspace root, reusing existing .cgm identity when present",
 		Args:              cobra.MaximumNArgs(1),
 		ValidArgsFunction: completeDirectory,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -338,7 +340,11 @@ func workspaceListCommand() *cobra.Command {
 			log := commandLogger(cmd)
 			log.Success("WORKSPACE", "registered workspaces loaded", "count", len(items))
 			for _, item := range items {
-				log.Detail(item.ID, item.Path)
+				if item.Available() {
+					log.Detail(item.ID, item.Path)
+					continue
+				}
+				log.Detail(item.ID, item.Path+" · unavailable")
 			}
 			return nil
 		},
@@ -367,6 +373,11 @@ func workspaceShowCommand() *cobra.Command {
 			log.Info("WORKSPACE", "workspace details")
 			log.Detail("id", item.ID)
 			log.Detail("root", item.Path)
+			log.Detail("local state", filepath.Join(item.Path, ".cgm"))
+			if !item.Available() {
+				log.Detail("status", "unavailable")
+				log.Detail("error", item.Error)
+			}
 			if len(item.AllowDirs) == 0 {
 				log.Detail("allow dirs", "none")
 			} else {
@@ -385,7 +396,7 @@ func workspaceShowCommand() *cobra.Command {
 func workspaceUnregisterCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:               "unregister <workspace_id>",
-		Short:             "Remove a workspace handle without deleting project files",
+		Short:             "Remove a workspace from the local index without deleting .cgm or project files",
 		Args:              cobra.ExactArgs(1),
 		ValidArgsFunction: completeWorkspaceID,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -405,7 +416,42 @@ func workspaceUnregisterCommand() *cobra.Command {
 			log.Detail("id", item.ID)
 			log.Detail("root", item.Path)
 			log.Detail("files", "unchanged")
+			log.Detail("local state", "kept")
 			return nil
 		},
 	}
+}
+
+func workspaceDeleteStateCommand() *cobra.Command {
+	var confirm bool
+	cmd := &cobra.Command{
+		Use:               "purge <workspace_id|path>",
+		Short:             "Delete <workspace>/.cgm after confirmation",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: completeWorkspaceID,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !confirm {
+				return fmt.Errorf("refusing to delete workspace state without --confirm")
+			}
+			manager := workspaceManagerForCommand(cmd)
+			item, err := manager.DeleteState(args[0])
+			if err != nil {
+				return err
+			}
+			if err := syncWorkspaceRuntime(cmd); err != nil {
+				return err
+			}
+			log := commandLogger(cmd)
+			log.Success("WORKSPACE", "workspace local state deleted")
+			if item.ID != "" {
+				log.Detail("id", item.ID)
+			}
+			log.Detail("root", item.Path)
+			log.Detail("local state", "deleted")
+			log.Detail("files", "unchanged")
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&confirm, "confirm", false, "confirm deletion of local .cgm state")
+	return cmd
 }

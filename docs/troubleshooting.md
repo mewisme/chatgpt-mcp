@@ -2,13 +2,16 @@
 
 Use this guide for common runtime, service, tunnel, configuration, and connectivity failures.
 
-Start with these three commands:
+Start with these commands:
 
 ```bash
+cgm doctor
+cgm doctor --verbose
 cgm status
-cgm tunnel status
 cgm logs --debug -n 200
 ```
+
+`cgm doctor` is the whole-application diagnostic. Collect its text or JSON output before running narrower subsystem commands. A default doctor run is read-only and does not repair state. Exit `0` can still include warnings; a non-zero exit means at least one check failed.
 
 ## MCP session needs to work across multiple workspaces
 
@@ -42,6 +45,18 @@ OpenAI documents that role/permission changes can take time to propagate, so ret
 
 See [OpenAI + ChatGPT setup](openai-chatgpt.md).
 
+## Secure MCP Tunnel plugin is missing
+
+Live OpenAI tunnel start/stop belongs to the `secure-mcp-tunnel` core plugin. If an **installed** `cgm` reports `secure MCP tunnel core plugin is not installed`, repair with:
+
+```bash
+cgm plugin install secure-mcp-tunnel
+```
+
+From a source checkout, `go run .` builds that plugin into `<repo>/.cgm/dev` as `local-dev`; do not install the signed registry copy into the release plugin store to develop. `cgm doctor` inspects local-dev provenance and does not rebuild it (`CHATGPT_MCP_DEV_PLUGINS=rebuild` does).
+
+Direct MCP HTTP (`/mcp`) and Admin stay up. Core will not start a hidden in-process OpenAI tunnel client. Cloudflare Quick Tunnel (`cf-tunnel`) is a separate optional plugin and does not replace Secure MCP collection management.
+
 ## Tunnel authentication fails / 403
 
 The runtime API key principal likely does not have the required tunnel permissions or is scoped to the wrong organization/tunnel.
@@ -60,19 +75,17 @@ Tunnels Read + Manage
 
 Do not replace the runtime key with a Platform Admin API key.
 
-Reconfigure when necessary:
+Replace the affected local runtime credential by detaching and reattaching that tunnel:
 
 ```bash
-cgm tunnel configure \
-  --enabled \
-  --id tunnel_... \
-  --api-key 'sk-...'
+cgm tunnel detach tunnel_...
+cgm tunnel attach tunnel_... --admin personal --runtime-api-key 'sk-...'
 ```
 
 Then:
 
 ```bash
-cgm tunnel status
+cgm tunnel status tunnel_...
 cgm logs --component TUNNEL --debug -f
 ```
 
@@ -269,7 +282,7 @@ Do not register the destination as a separate workspace if it is the same projec
 cgm workspace relocate ws_... /new/path/to/project
 ```
 
-The canonical workspace ID changes because IDs are derived from canonical paths, but the previous ID remains a legacy alias. Persistent workspace state and container membership follow the new ID, and state paths under the old root are rebased to the new root. The operation does not rename or move the project directory itself.
+The workspace ID is preserved because identity lives in `<workspace>/.cgm/workspace.json`. Persistent workspace state and container membership stay with the project, and state paths under the old root are rebased to the new root. The operation does not rename or move the project directory itself.
 
 In `cgm tui`, open the workspace detail, press `m` for **Relocate**, choose the new directory, and press `Enter` on the final field to relocate it.
 
@@ -300,19 +313,20 @@ Inspect authentication:
 cgm auth status
 ```
 
-Create/rotate an MCP token if needed:
+Reveal or rotate a Direct MCP HTTP token if needed:
 
 ```bash
-cgm auth mcp create
+cgm auth mcp show
+cgm auth mcp rotate
 ```
 
 Then send:
 
 ```http
-Authorization: Bearer <mcp-token>
+Authorization: Bearer <direct-mcp-http-token>
 ```
 
-Do not confuse this MCP token with the OpenAI tunnel runtime API key.
+Do not confuse this Direct MCP HTTP token with the OpenAI tunnel runtime API key. Secure MCP Tunnel is unaffected. Reuse the same token when adding this MCP server to ChatGPT.
 
 ## Wildcard exposure is rejected
 
@@ -327,7 +341,7 @@ cgm auth status
 Create credentials if appropriate:
 
 ```bash
-cgm auth mcp create
+cgm auth mcp rotate
 cgm auth admin create
 ```
 
@@ -405,11 +419,31 @@ cgm logs --debug -n 200
 
 Fix the upstream endpoint/auth/discovery issue, then retry the relevant upstream configuration action.
 
+## Desktop approval notifications do not appear
+
+Desktop notifications are best-effort and never required for approval.
+
+Check:
+
+1. `cgm config get notifications` — `enabled` and `approvals` must be true.
+2. A TUI reviewer is not already open for this config root (`notifications.when_tui_inactive` suppresses alerts while it is).
+3. The host can actually notify: Linux needs a session D-Bus plus `gdbus` or `notify-send`; Windows needs PowerShell; macOS needs `osascript`; WSL prefers Windows-host PowerShell rather than Linux D-Bus.
+4. Headless/SSH Linux without a desktop session is expected to stay silent.
+
+Review from the TUI Requests page or:
+
+```bash
+cgm tui requests
+cgm doctor --verbose
+cgm logs --component NOTIFICATION --debug -n 50
+```
+
 ## Still stuck
 
 Collect these without copying secrets:
 
 ```bash
+cgm doctor --verbose
 cgm --version
 cgm status
 cgm tunnel status

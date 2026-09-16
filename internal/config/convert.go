@@ -38,6 +38,9 @@ func ConvertFormat(target configformat.Format) (int, error) {
 }
 
 func convertFormatAt(root string, target configformat.Format) (int, error) {
+	if err := configformat.AssertMutableRoot(root); err != nil {
+		return 0, err
+	}
 	source, err := configformat.Discover(root)
 	if err != nil {
 		return 0, err

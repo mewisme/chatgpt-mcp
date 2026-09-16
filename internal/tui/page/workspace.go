@@ -22,6 +22,7 @@ const (
 	WorkspaceRegister         WorkspaceCommand = "workspace.register"
 	WorkspaceRelocate         WorkspaceCommand = "workspace.relocate"
 	WorkspaceUnregister       WorkspaceCommand = "workspace.unregister"
+	WorkspaceDeleteState      WorkspaceCommand = "workspace.delete-state"
 	WorkspaceAccessAdd        WorkspaceCommand = "workspace.access.add"
 	WorkspaceAccessRemove     WorkspaceCommand = "workspace.access.remove"
 	WorkspaceContainerCreate  WorkspaceCommand = "workspace.container.create"
@@ -260,15 +261,15 @@ func (page *WorkspacePage) Update(message tea.Msg) (Model, tea.Cmd) {
 	case workspaceCopyIDMsg:
 		if err := copyWorkspaceID(msg.ID); err != nil {
 			page.err = err
-		} else {
-			page.err = nil
-			page.notice = "Copied " + msg.ID
+			return page, func() tea.Msg { return OperationResult("workspace.copy", "Workspace", "", err) }
 		}
-		return page, nil
+		page.err = nil
+		notice := "Copied " + msg.ID
+		return page, func() tea.Msg { return OperationResult("workspace.copy", "Workspace", notice, nil) }
 	case workspaceRefreshDetailMsg:
 		page.err = page.syncDetail()
 		if page.err == nil {
-			page.notice = "Refreshed"
+			return page, func() tea.Msg { return OperationResult("workspace.refresh", "Workspace", "Refreshed", nil) }
 		}
 		return page, nil
 	case workspaceContextBuildMsg:
@@ -283,6 +284,9 @@ func (page *WorkspacePage) Update(message tea.Msg) (Model, tea.Cmd) {
 			if page.contextBuilding {
 				if msg.String() == "esc" {
 					page.cancelWorkspaceContextBuild()
+					return page, func() tea.Msg {
+						return cancelledOperation("workspace.context.build", "Workspace", "Project Context build cancelled")
+					}
 				}
 				return page, nil
 			}
@@ -474,15 +478,19 @@ func (page *WorkspacePage) openCommand(command WorkspaceCommand, resourceID stri
 	switch command {
 	case WorkspaceRegister, WorkspaceRelocate, WorkspaceAccessAdd, WorkspaceAccessRemove, WorkspaceContainerCreate, WorkspaceContainerRename, WorkspaceContainerMembers:
 		return page.workspaceEditorNavigation(command, page.targetID), nil
-	case WorkspaceUnregister, WorkspaceContainerDelete:
-		if command == WorkspaceUnregister {
+	case WorkspaceUnregister, WorkspaceDeleteState, WorkspaceContainerDelete:
+		if command == WorkspaceUnregister || command == WorkspaceDeleteState {
 			if _, err := page.manager.Get(page.targetID); err != nil {
 				return nil, err
 			}
 		} else if _, err := page.manager.GetContainer(page.targetID); err != nil {
 			return nil, err
 		}
-		page.confirm = component.NewConfirmButtons("Delete", "Cancel", false)
+		affirmative := "Delete"
+		if command == WorkspaceUnregister {
+			affirmative = "Unregister"
+		}
+		page.confirm = component.NewConfirmButtons(affirmative, "Cancel", false)
 		page.overlay = workspaceOverlayConfirm
 		return nil, nil
 	default:
@@ -501,9 +509,12 @@ func (page *WorkspacePage) updateConfirm(msg tea.KeyPressMsg) tea.Cmd {
 			return nil
 		}
 		var err error
-		if page.command == WorkspaceUnregister {
+		switch page.command {
+		case WorkspaceUnregister:
 			err = page.manager.Unregister(page.targetID)
-		} else {
+		case WorkspaceDeleteState:
+			_, err = page.manager.DeleteState(page.targetID)
+		default:
 			err = page.manager.DeleteContainer(page.targetID)
 		}
 		if err == nil {
@@ -513,7 +524,7 @@ func (page *WorkspacePage) updateConfirm(msg tea.KeyPressMsg) tea.Cmd {
 			page.err = err
 			return nil
 		}
-		page.notice = workspaceSuccess(page.command)
+		notice := workspaceSuccess(page.command)
 		deletedID := page.targetID
 		page.closeOverlay()
 		if deletedID != "" {
@@ -521,9 +532,11 @@ func (page *WorkspacePage) updateConfirm(msg tea.KeyPressMsg) tea.Cmd {
 			if page.containers {
 				path = []string{"containers"}
 			}
-			return func() tea.Msg { return NavigateMsg{Path: path, Replace: true} }
+			return tea.Batch(func() tea.Msg { return NavigateMsg{Path: path, Replace: true} }, func() tea.Msg {
+				return OperationResult("workspace.delete", "Workspace", notice, nil)
+			})
 		}
-		return nil
+		return func() tea.Msg { return OperationResult("workspace.delete", "Workspace", notice, nil) }
 	}
 	return page.confirm.Update(msg)
 }
@@ -614,7 +627,11 @@ func (page *WorkspacePage) workspaceRows() ([]component.Row, error) {
 	}
 	rows := make([]component.Row, 0, len(items))
 	for _, item := range items {
-		rows = append(rows, component.Row{ID: item.ID, Title: item.ID, Description: item.Path, Meta: fmt.Sprintf("%d extra roots", len(item.AllowDirs)), Search: strings.Join(append(append([]string{item.Path}, item.AllowDirs...), item.LegacyIDs...), " ")})
+		meta := fmt.Sprintf("%d extra roots", len(item.AllowDirs))
+		if !item.Available() {
+			meta = "unavailable"
+		}
+		rows = append(rows, component.Row{ID: item.ID, Title: item.ID, Description: item.Path, Meta: meta, Search: strings.Join(append(append([]string{item.Path, item.Error}, item.AllowDirs...), item.LegacyIDs...), " ")})
 	}
 	return rows, nil
 }
@@ -713,7 +730,11 @@ func (page *WorkspacePage) syncWorkspaceDetail() error {
 	content := ""
 	switch page.section {
 	case "":
-		content = detailFields([2]string{"Root", item.Path}, [2]string{"Legacy IDs", joinedOrNone(item.LegacyIDs)})
+		fields := [][2]string{{"Root", item.Path}, {"Local state", filepath.Join(item.Path, ".cgm")}, {"Legacy IDs", joinedOrNone(item.LegacyIDs)}}
+		if !item.Available() {
+			fields = append([][2]string{{"Status", "unavailable"}, {"Error", item.Error}}, fields...)
+		}
+		content = detailFields(fields...)
 	case "context":
 		page.initWorkspaceContext()
 		return nil
@@ -742,7 +763,11 @@ func (page *WorkspacePage) syncWorkspaceDetail() error {
 	} else if page.section == "containers" {
 		detailTitle = "Containers"
 	}
-	page.detail = component.NewDetailPage(detailTitle, fmt.Sprintf("%d extra roots", len(item.AllowDirs)), content).WithTitleVisible(false)
+	subtitle := fmt.Sprintf("%d extra roots", len(item.AllowDirs))
+	if !item.Available() {
+		subtitle = "unavailable"
+	}
+	page.detail = component.NewDetailPage(detailTitle, subtitle, content).WithTitleVisible(false)
 	bindings := []component.DetailPageBinding{}
 	if page.section == "" {
 		bindings = append(bindings,
@@ -757,6 +782,7 @@ func (page *WorkspacePage) syncWorkspaceDetail() error {
 		component.DetailPageBinding{Key: "+", Desc: "add access", Message: WorkspaceCommandMsg{Command: WorkspaceAccessAdd, ResourceID: item.ID}},
 		component.DetailPageBinding{Key: "-", Desc: "remove access", Message: WorkspaceCommandMsg{Command: WorkspaceAccessRemove, ResourceID: item.ID}},
 		component.DetailPageBinding{Key: "d", Desc: "unregister", Message: WorkspaceCommandMsg{Command: WorkspaceUnregister, ResourceID: item.ID}},
+		component.DetailPageBinding{Key: "D", Desc: "delete state", Message: WorkspaceCommandMsg{Command: WorkspaceDeleteState, ResourceID: item.ID}},
 		component.DetailPageBinding{Key: "r", Desc: "refresh", Message: workspaceRefreshDetailMsg{}},
 	)
 	page.detail.SetBindings(bindings...)
@@ -838,17 +864,25 @@ func workspaceMemberLabel(item workspace.Workspace) string {
 }
 
 func (page *WorkspacePage) confirmTitle() string {
-	if page.command == WorkspaceUnregister {
+	switch page.command {
+	case WorkspaceUnregister:
 		return "Unregister workspace " + page.targetID + "?"
+	case WorkspaceDeleteState:
+		return "Delete local state for " + page.targetID + "?"
+	default:
+		return "Delete container " + page.targetID + "?"
 	}
-	return "Delete container " + page.targetID + "?"
 }
 
 func (page *WorkspacePage) confirmDescription() string {
-	if page.command == WorkspaceUnregister {
-		return "The workspace handle and workspace-scoped state will be removed. Project files are unchanged."
+	switch page.command {
+	case WorkspaceUnregister:
+		return "The workspace is removed from the local index. Project files and .cgm state stay on disk."
+	case WorkspaceDeleteState:
+		return "This unregisters the workspace and deletes <workspace>/.cgm, including identity, memory, and checkpoints. Project files are unchanged. This cannot be undone."
+	default:
+		return "The container record will be removed. Registered workspaces and project files are unchanged."
 	}
-	return "The container record will be removed. Registered workspaces and project files are unchanged."
 }
 
 func workspaceSuccess(command WorkspaceCommand) string {
@@ -859,6 +893,8 @@ func workspaceSuccess(command WorkspaceCommand) string {
 		return "Workspace relocated"
 	case WorkspaceUnregister:
 		return "Workspace unregistered"
+	case WorkspaceDeleteState:
+		return "Workspace local state deleted"
 	case WorkspaceAccessAdd:
 		return "Access directory added"
 	case WorkspaceAccessRemove:

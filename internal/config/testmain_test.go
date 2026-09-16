@@ -1,14 +1,19 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"testing"
 
-	"go.mewis.me/chatgpt-mcp/internal/secretstore"
+	"go.mewis.me/chatgpt-mcp/internal/testutil"
 )
 
 func TestMain(m *testing.M) {
-	cleanup := secretstore.UseMemoryForTesting()
+	_, cleanup, err := testutil.IsolateConfigHome()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 	code := m.Run()
 	cleanup()
 	os.Exit(code)

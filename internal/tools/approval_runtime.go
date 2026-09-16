@@ -18,6 +18,7 @@ func (r *Runtime) prepareApprovalRetry(ctx context.Context, sessionID, workspace
 	retry := approval.RetryInput{
 		SessionID: sessionID, WorkspaceID: workspaceID, Source: source, TargetTool: name, Arguments: args, Command: command,
 	}
+	retry.TunnelID, _ = CallTunnel(ctx)
 	if granted, matched := r.Approvals.MatchRuntimeGrant(retry); matched {
 		ctx = WithApprovalRequest(ctx, granted.ID)
 		ctx = controlguard.WithGrant(ctx, controlguard.Grant{RequestID: granted.ID, Code: granted.GuardCode})
@@ -69,7 +70,7 @@ func (r *Runtime) prepareApprovalRetry(ctx context.Context, sessionID, workspace
 	return ctx, claimed, nil, nil
 }
 
-func (r *Runtime) approvalResultForGuard(guard *controlguard.Error, sessionID, sessionHash, workspaceID, source, name string, args map[string]any, claimed approval.Request) (Result, bool, error) {
+func (r *Runtime) approvalResultForGuard(ctx context.Context, guard *controlguard.Error, sessionID, sessionHash, workspaceID, source, name string, args map[string]any, claimed approval.Request) (Result, bool, error) {
 	if guard == nil || !guard.Approvable || claimed.ID != "" || r == nil || r.Approvals == nil || strings.TrimSpace(sessionID) == "" || strings.TrimSpace(workspaceID) == "" {
 		return Result{}, false, nil
 	}
@@ -85,8 +86,9 @@ func (r *Runtime) approvalResultForGuard(guard *controlguard.Error, sessionID, s
 	if command != "" {
 		similarPattern, _ = workspace.SimilarCommandPattern(command)
 	}
+	tunnelID, tunnelName := CallTunnel(ctx)
 	challenge, _, err := r.Approvals.CreateChallenge(approval.ChallengeInput{
-		SessionID: sessionID, SessionHash: sessionHash, WorkspaceID: workspaceID, Source: source, TargetTool: name, Arguments: args,
+		SessionID: sessionID, SessionHash: sessionHash, WorkspaceID: workspaceID, Source: source, TunnelID: tunnelID, TunnelName: tunnelName, TargetTool: name, Arguments: args,
 		GuardCode: guard.Code, GuardReason: guard.Error(), Command: command, SimilarCommandPattern: similarPattern,
 	})
 	if err != nil {

@@ -67,11 +67,11 @@ try {
   run(["config", "set", "server.allow_unauthenticated_loopback", "true"])
   run(["config", "set", "auth.mcp_enabled", "false"])
   run(["config", "set", "auth.admin_enabled", "false"])
-  run(["config", "set", "features.ponytail.active", "false"])
-  run(["config", "set", "features.ponytail.mode", "ultra"])
-  run(["config", "set", "features.caveman.active", "false"])
-  run(["config", "set", "features.caveman.mode", "wenyan-ultra"])
-  run(["config", "set", "features.caveman.active", "true"])
+  run(["plugin", "config", "set", "ponytail", "default_active", "false"])
+  run(["plugin", "config", "set", "ponytail", "default_mode", "ultra"])
+  run(["plugin", "config", "set", "caveman", "default_active", "false"])
+  run(["plugin", "config", "set", "caveman", "default_mode", "wenyan-ultra"])
+  run(["plugin", "config", "set", "caveman", "default_active", "true"])
   run(["config", "verify"])
   run(["status"])
   await verifyStableCLIOutputs()
@@ -90,7 +90,7 @@ try {
   await verifyWorkspaceContainerMCP(serverPort, workspaceID)
   verifyApprovalCLI()
   const foregroundStatus = run(["status"], { quiet: true })
-  for (const expected of ["✓ ChatGPT MCP is running", "session     run_", "mode        foreground", "OpenAI Secure MCP Tunnel is disabled"]) {
+  for (const expected of ["✓ ChatGPT MCP is running", "session     run_", "mode        foreground", "tunnels 0/0 enabled"]) {
     if (!foregroundStatus.includes(expected)) fail(`foreground status missing ${JSON.stringify(expected)}:\n${foregroundStatus}`)
   }
 
@@ -99,9 +99,9 @@ try {
   const reloadedAdminPort = await freePort()
   run(["config", "set", "server.port", String(reloadedServerPort)])
   run(["config", "set", "admin.port", String(reloadedAdminPort)])
-  run(["config", "set", "features.ponytail.active", "true"])
-  run(["config", "set", "features.ponytail.mode", "lite"])
-  run(["config", "set", "features.caveman.mode", "full"])
+  run(["plugin", "config", "set", "ponytail", "default_active", "true"])
+  run(["plugin", "config", "set", "ponytail", "default_mode", "lite"])
+  run(["plugin", "config", "set", "caveman", "default_mode", "full"])
   if (child.pid !== servePID || child.exitCode !== null) fail("automatic config reload restarted or stopped the serve process")
   await waitForHealth(`http://127.0.0.1:${reloadedServerPort}/health`, child, () => `${stdout}\n${stderr}`)
   await waitForHealth(`http://127.0.0.1:${reloadedAdminPort}/api/health`, child, () => `${stdout}\n${stderr}`)
@@ -139,7 +139,7 @@ try {
   await waitForHealth(`http://127.0.0.1:${reloadedAdminPort}/api/health`, child, () => `${stdout}\n${stderr}`)
 
   const managedStatus = await waitForStatus(child, () => `${stdout}\n${stderr}`)
-  for (const expected of ["✓ ChatGPT MCP is running", "managed     user ·", `service     ${managedServiceID}`, "session     run_", "OpenAI Secure MCP Tunnel is disabled"]) {
+  for (const expected of ["✓ ChatGPT MCP is running", "managed     user ·", `service     ${managedServiceID}`, "session     run_", "tunnels 0/0 enabled"]) {
     if (!managedStatus.includes(expected)) fail(`managed status missing ${JSON.stringify(expected)}:\n${managedStatus}`)
   }
   const managedLogs = run(["logs", "--debug", "--event", "server.*", "--grep", "Server", "--tail", "50"], { quiet: true })
@@ -157,7 +157,7 @@ try {
   follower.stdout.on("data", (chunk) => { followerStdout += chunk.toString() })
   follower.stderr.on("data", (chunk) => { followerStderr += chunk.toString() })
   await sleep(250)
-  run(["config", "set", "features.caveman.mode", "ultra"], { quiet: true })
+  run(["plugin", "config", "set", "caveman", "default_mode", "ultra"], { quiet: true })
   await waitForText("runtime log follow", follower, () => `${followerStdout}\n${followerStderr}`, "Configuration reloaded")
   await stopChild(follower)
   follower = null

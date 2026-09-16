@@ -6,8 +6,8 @@
 #   CHATGPT_MCP_VERSION           release tag (default: latest)
 #   CHATGPT_MCP_INSTALL_DIR       install location (default: %LOCALAPPDATA%\chatgpt-mcp)
 #   CHATGPT_MCP_ARCH              architecture override: amd64 or arm64
-#   INSTALL_ALLOW_CHECKSUM_ONLY   set to 1 to proceed when Sigstore/cosign
-#                                 verification is unavailable (loud warning)
+#   INSTALL_REQUIRE_COSIGN        set to 1 to require Sigstore/cosign
+#                                 verification instead of checksum fallback
 
 param(
   [switch]$Uninstall,
@@ -227,43 +227,30 @@ try {
   $actual = (Get-FileHash -Algorithm SHA256 -Path $zip).Hash.ToLowerInvariant()
   if ($actual -ne $expected) { throw "chatgpt-mcp: checksum verification failed for $asset" }
 
-  $sigstoreOk = $false
-  $signatureAvailable = $false
-  try {
-    Invoke-WebRequest -Uri $signatureUrl -OutFile $signature
-    $signatureAvailable = $true
-  } catch {
-    $signatureAvailable = $false
-  }
-
   $cosign = Get-Command cosign -ErrorAction SilentlyContinue
-  if ($signatureAvailable -and $cosign) {
-    & $cosign.Source verify-blob `
-      --bundle=$signature `
-      --certificate-identity=$certIdentity `
-      --certificate-oidc-issuer=$oidcIssuer `
-      $checksums
-    if ($LASTEXITCODE -ne 0) {
-      throw "chatgpt-mcp: Sigstore/cosign verification failed for $signatureName"
-    }
-    $sigstoreOk = $true
-    Write-Host 'Sigstore signature verified for checksums.txt.'
-  }
-
-  if (-not $sigstoreOk) {
-    if ($env:INSTALL_ALLOW_CHECKSUM_ONLY -eq '1') {
-      Write-Warning 'Sigstore/cosign verification unavailable; proceeding with checksum-only install because INSTALL_ALLOW_CHECKSUM_ONLY=1.'
-      Write-Warning "Install cosign and ensure $signatureName is published for full release integrity."
-    } else {
-      $reason = if (-not $signatureAvailable) {
-        "could not download $signatureName from $signatureUrl"
-      } elseif (-not $cosign) {
-        'cosign is not installed or not on PATH'
-      } else {
-        'Sigstore verification did not complete'
+  if ($cosign) {
+    try {
+      Invoke-WebRequest -Uri $signatureUrl -OutFile $signature
+      & $cosign.Source verify-blob `
+        --bundle=$signature `
+        --certificate-identity=$certIdentity `
+        --certificate-oidc-issuer=$oidcIssuer `
+        $checksums
+      if ($LASTEXITCODE -ne 0) {
+        throw "chatgpt-mcp: Sigstore/cosign verification failed for $signatureName"
       }
-      throw "chatgpt-mcp: Sigstore/cosign verification is required but unavailable ($reason). Install cosign, or set INSTALL_ALLOW_CHECKSUM_ONLY=1 to proceed with checksum-only verification."
+      Write-Host 'Sigstore signature verified for checksums.txt.'
+    } catch {
+      if ($_.Exception.Message -like 'chatgpt-mcp: Sigstore/cosign verification failed*') { throw }
+      if ($env:INSTALL_REQUIRE_COSIGN -eq '1') {
+        throw "chatgpt-mcp: could not download required $signatureName from $signatureUrl"
+      }
+      Write-Warning 'Sigstore bundle unavailable; checksum verified, continuing without signature verification.'
     }
+  } elseif ($env:INSTALL_REQUIRE_COSIGN -eq '1') {
+    throw 'chatgpt-mcp: cosign is required by INSTALL_REQUIRE_COSIGN=1 but is not installed or not on PATH'
+  } else {
+    Write-Host 'Checksum verified. cosign is not installed; skipping optional Sigstore verification.'
   }
 
   $extract = Join-Path $tmp 'extract'

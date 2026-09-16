@@ -9,12 +9,11 @@ import (
 	"time"
 
 	"go.mewis.me/chatgpt-mcp/internal/approval"
-	"go.mewis.me/chatgpt-mcp/internal/caveman"
 	"go.mewis.me/chatgpt-mcp/internal/checkpoint"
 	"go.mewis.me/chatgpt-mcp/internal/controlguard"
-	"go.mewis.me/chatgpt-mcp/internal/features"
 	"go.mewis.me/chatgpt-mcp/internal/idgen"
-	"go.mewis.me/chatgpt-mcp/internal/ponytail"
+	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
+	"go.mewis.me/chatgpt-mcp/internal/plugindev"
 	shellruntime "go.mewis.me/chatgpt-mcp/internal/shell"
 	"go.mewis.me/chatgpt-mcp/internal/upstream"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
@@ -28,34 +27,32 @@ const (
 var errTunnelResponseBudgetExceeded = errors.New("tunnel response budget exhausted")
 
 type Runtime struct {
-	Registry        *Registry
-	Workspaces      *workspace.Manager
-	Checkpoints     *checkpoint.Store
-	Upstream        *upstream.Manager
-	CallObserver    CallObserver
-	SessionAccess   *SessionWorkspaceAccessManager
-	Approvals       *approval.Manager
-	Executions      *shellruntime.ExecutionHub
-	Processes       *shellruntime.ProcessManager
-	LoopGuard       *ToolLoopGuard
-	sessionMu       sync.Mutex
-	featureMu       sync.Mutex
-	features        features.Config
-	ponytailManager *ponytail.Manager
-	cavemanManager  *caveman.Manager
+	Registry         *Registry
+	Workspaces       *workspace.Manager
+	Checkpoints      *checkpoint.Store
+	Upstream         *upstream.Manager
+	CallObserver     CallObserver
+	SessionAccess    *SessionWorkspaceAccessManager
+	Approvals        *approval.Manager
+	Executions       *shellruntime.ExecutionHub
+	Hooks            *pluginpkg.HookDispatcher
+	PluginStore      *pluginpkg.Store
+	Shell            *shellruntime.Manager
+	Processes        *shellruntime.ProcessManager
+	LoopGuard        *ToolLoopGuard
+	PluginReconcile  pluginpkg.ReconcileReport
+	WorkspacePlugins *pluginpkg.WorkspaceStores
+	sessionMu        sync.Mutex
+	pluginSessions   []PluginSession
 }
 
 func NewRuntime() *Runtime {
-	return NewRuntimeWithFeatures(features.Default())
+	return NewRuntimeWithAccess(nil)
 }
 
-func NewRuntimeWithFeatures(featureConfig features.Config) *Runtime {
-	return NewRuntimeWithAccess(featureConfig, nil)
-}
-
-func NewRuntimeWithAccess(featureConfig features.Config, globalAllowDirs []string, environments ...ProjectContextEnvironment) *Runtime {
+func NewRuntimeWithAccess(globalAllowDirs []string, environments ...ProjectContextEnvironment) *Runtime {
 	workspaces := workspace.NewManagerWithGlobalAllowDirs(workspace.DefaultStorePath(), globalAllowDirs)
-	checkpoints := checkpoint.NewStore(checkpoint.DefaultRoot())
+	checkpoints := checkpoint.NewWorkspaceStore(checkpoint.DefaultRoot(), workspaces)
 	upstreams := upstream.NewManager(upstream.NewStore(upstream.Path()))
 	_ = upstreams.Load()
 	registry := NewRegistry()
@@ -64,9 +61,26 @@ func NewRuntimeWithAccess(featureConfig features.Config, globalAllowDirs []strin
 		panic(err)
 	}
 	executions := shellruntime.NewExecutionHub()
-	shell := shellruntime.NewManagerWithExecutions(workspaces, shellruntime.DefaultStateRoot(), executions)
+	layout, err := plugindev.Prepare()
+	if err != nil {
+		panic(err)
+	}
+	pluginStore, err := pluginpkg.NewStore(layout, pluginpkg.RuntimeContext{})
+	if err != nil {
+		panic(err)
+	}
+	pluginReconcile, err := pluginpkg.Reconcile(pluginStore)
+	if err != nil {
+		panic(err)
+	}
+	workspacePlugins := pluginpkg.NewWorkspaceStores(pluginpkg.RuntimeContext{})
+	attachWorkspacePluginStores(workspaces, workspacePlugins, pluginStore)
+	loadWorkspacePluginStores(workspaces, workspacePlugins)
+	workspacePlugins.SetGlobalPeer(pluginStore)
+	shell := shellruntime.NewManagerWithProviderResolver(workspaces, shellruntime.DefaultStateRoot(), executions, shellruntime.NewProviderResolver(pluginStore))
 	processes := shellruntime.NewProcessManagerWithExecutions(workspaces, shell, executions)
-	runtime := &Runtime{Registry: registry, Workspaces: workspaces, Checkpoints: checkpoints, Upstream: upstreams, SessionAccess: NewSessionWorkspaceAccessManager(), Approvals: approval.NewManager(identity.ID), Executions: executions, Processes: processes, LoopGuard: NewToolLoopGuard(), ponytailManager: ponytail.NewManager(featureConfig.Ponytail.Active, ponytail.Mode(featureConfig.Ponytail.Mode)), cavemanManager: caveman.NewManager(featureConfig.Caveman.Active, caveman.Mode(featureConfig.Caveman.Mode))}
+	runtime := &Runtime{Registry: registry, Workspaces: workspaces, Checkpoints: checkpoints, Upstream: upstreams, SessionAccess: NewSessionWorkspaceAccessManager(), Approvals: approval.NewManager(identity.ID), Executions: executions, Hooks: pluginpkg.NewHookDispatcher(pluginStore), PluginStore: pluginStore, Shell: shell, Processes: processes, LoopGuard: NewToolLoopGuard(), PluginReconcile: pluginReconcile, WorkspacePlugins: workspacePlugins}
+	attachEffectiveWorkspacePlugins(runtime)
 	RegisterWorkspaceTools(registry, workspaces, shell)
 	RegisterWorkspaceListTool(registry, runtime)
 	RegisterWorkspaceContainerTools(registry, workspaces)
@@ -77,7 +91,7 @@ func NewRuntimeWithAccess(featureConfig features.Config, globalAllowDirs []strin
 	registerCoreWithManagers(registry, workspaces, checkpoints, environment, shell, processes)
 	RegisterApprovalTools(registry, runtime)
 	RegisterUpstreamTools(registry, upstreams)
-	if err := runtime.SyncFeatures(featureConfig); err != nil {
+	if err := runtime.SyncPlugins(); err != nil {
 		panic(err)
 	}
 
@@ -94,34 +108,82 @@ func (r *Runtime) RefreshUpstreams(ctx context.Context, force bool) error {
 	return RefreshUpstreamProxies(ctx, r.Registry, r.Upstream, force)
 }
 
-func (r *Runtime) SyncFeatures(featureConfig features.Config) error {
+func (r *Runtime) SyncPlugins() error {
 	if r == nil || r.Registry == nil || r.Workspaces == nil {
 		return errors.New("tool runtime is unavailable")
 	}
-	r.featureMu.Lock()
-	defer r.featureMu.Unlock()
-	if r.ponytailManager == nil {
-		r.ponytailManager = ponytail.NewManager(featureConfig.Ponytail.Active, ponytail.Mode(featureConfig.Ponytail.Mode))
+	if SyncCompiledPlugins == nil {
+		return nil
 	}
-	if r.cavemanManager == nil {
-		r.cavemanManager = caveman.NewManager(featureConfig.Caveman.Active, caveman.Mode(featureConfig.Caveman.Mode))
-	}
-	if err := r.Registry.ReplaceOwnedPrefix("feature:", featureToolEntries(r.Workspaces, r.ponytailManager, r.cavemanManager)); err != nil {
-		return err
-	}
-	r.ponytailManager.SetDefaults(featureConfig.Ponytail.Active, ponytail.Mode(featureConfig.Ponytail.Mode))
-	r.cavemanManager.SetDefaults(featureConfig.Caveman.Active, caveman.Mode(featureConfig.Caveman.Mode))
-	r.features = featureConfig
-	return nil
+	return SyncCompiledPlugins(r)
 }
 
-func (r *Runtime) Features() features.Config {
-	if r == nil {
-		return features.Config{}
+func attachWorkspacePluginStores(workspaces *workspace.Manager, stores *pluginpkg.WorkspaceStores, global *pluginpkg.Store) {
+	if workspaces == nil || stores == nil {
+		return
 	}
-	r.featureMu.Lock()
-	defer r.featureMu.Unlock()
-	return r.features
+	sync := func() { stores.SetGlobalPeer(global) }
+	workspaces.SetStateHooks(
+		func(item workspace.Workspace) error {
+			if !item.Available() {
+				return nil
+			}
+			_, _, err := stores.Load(item.ID, item.Path)
+			sync()
+			return err
+		},
+		func(id string) {
+			stores.Unload(id)
+			sync()
+		},
+		func(item workspace.Workspace) error {
+			stores.Unload(item.ID)
+			if !item.Available() {
+				return nil
+			}
+			_, _, err := stores.Load(item.ID, item.Path)
+			sync()
+			return err
+		},
+	)
+}
+
+func loadWorkspacePluginStores(workspaces *workspace.Manager, stores *pluginpkg.WorkspaceStores) {
+	if workspaces == nil || stores == nil {
+		return
+	}
+	items, err := workspaces.List()
+	if err != nil {
+		return
+	}
+	for _, item := range items {
+		if !item.Available() {
+			continue
+		}
+		_, _, _ = stores.Load(item.ID, item.Path)
+	}
+}
+
+func attachEffectiveWorkspacePlugins(runtime *Runtime) {
+	if runtime == nil {
+		return
+	}
+	lookup := func(id string) *pluginpkg.Store {
+		if runtime.WorkspacePlugins == nil {
+			return nil
+		}
+		store, ok := runtime.WorkspacePlugins.Get(id)
+		if !ok {
+			return nil
+		}
+		return store
+	}
+	if runtime.Hooks != nil {
+		runtime.Hooks.SetWorkspaceStore(lookup)
+	}
+	if runtime.Shell != nil {
+		runtime.Shell.SetWorkspacePluginStore(lookup)
+	}
 }
 
 func (r *Runtime) SetGlobalAllowDirs(allowDirs []string) {
@@ -143,6 +205,13 @@ func (r *Runtime) SetShellPath(paths []string) {
 	}
 }
 
+func (r *Runtime) SetShellExecutable(path string) error {
+	if r == nil || r.Shell == nil {
+		return errors.New("shell runtime is unavailable")
+	}
+	return r.Shell.SetConfiguredExecutable(path)
+}
+
 func (r *Runtime) List() []Schema      { return r.Registry.ListSchemas() }
 func (r *Runtime) ListTools() []Schema { return r.List() }
 
@@ -150,9 +219,11 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 	callID := r.nextCallID()
 	started := time.Now()
 	source := CallSource(ctx)
+	tunnelID, tunnelName := CallTunnel(ctx)
 	callCtx, cancelCall := toolCallContext(ctx, source, started)
 	defer cancelCall()
 	ctx = callCtx
+	ctx, hookProvenance := hookCallProvenance(ctx, callID, source)
 	receivedBy := ReceivedByInstanceID(ctx)
 	if receivedBy == "" {
 		receivedBy = r.runtimeInstanceID()
@@ -212,8 +283,12 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 	}
 	claimedApproval := approval.Request{}
 	var forcedResult *Result
+	approvalWorkspaceID := workspaceID
+	if approvalWorkspaceID == "" && r.Hooks != nil {
+		approvalWorkspaceID = approvalControlWorkspace
+	}
 	if preflightErr == nil {
-		ctx, claimedApproval, forcedResult, preflightErr = r.prepareApprovalRetry(ctx, sessionID, workspaceID, source, name, args)
+		ctx, claimedApproval, forcedResult, preflightErr = r.prepareApprovalRetry(ctx, sessionID, approvalWorkspaceID, source, name, args)
 	}
 	loopClass, loopDecision := toolLoopClassMutation, toolLoopDecision{}
 	if preflightErr == nil && forcedResult == nil && strings.TrimSpace(sessionID) != "" && r.Registry != nil {
@@ -226,23 +301,35 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 			}
 		}
 	}
+	hookResult := pluginpkg.HookResult{Schema: pluginpkg.HookSchema, Decision: pluginpkg.HookDecisionContinue}
+	if preflightErr == nil && forcedResult == nil {
+		hookResult, preflightErr = r.runPreToolHook(ctx, hookProvenance, name, workspaceID, args)
+	}
 	executedBy := r.runtimeInstanceID()
 	ctx = shellruntime.WithExecutionMetadata(ctx, shellruntime.ExecutionMetadata{
-		Source: source, CallID: callID, SessionHash: sessionHash, ReceivedByInstanceID: receivedBy, ExecutedByInstanceID: executedBy,
+		Source: source, TunnelID: tunnelID, TunnelName: tunnelName, CallID: callID, SessionHash: sessionHash, ReceivedByInstanceID: receivedBy, ExecutedByInstanceID: executedBy,
+		ParentExecutionID: hookProvenance.ExecutionID, Origin: string(hookProvenance.Origin), HookDepth: hookProvenance.HookDepth,
 	})
 	raw := callRaw(ctx, source, name, args)
 	raw["call_id"] = callID
+	if len(hookResult.Providers) > 0 {
+		raw["plugins"] = map[string]any{"pre_tool_hooks": hookResult.Providers}
+	}
 	if sessionHash != "" {
 		raw["session"] = map[string]any{"hash": sessionHash, "access": sessionAccess, "workspace_count": sessionWorkspaceCount}
 	}
-	r.observeCall(CallObservation{CallID: callID, Phase: "start", Source: source, Tool: name, WorkspaceID: workspaceID, Raw: raw, SessionHash: sessionHash, SessionAccess: sessionAccess, SessionWorkspaceCount: sessionWorkspaceCount, ReceivedByInstanceID: receivedBy})
+	r.observeCall(CallObservation{CallID: callID, Phase: "start", Source: source, TunnelID: tunnelID, TunnelName: tunnelName, Tool: name, WorkspaceID: workspaceID, Raw: raw, SessionHash: sessionHash, SessionAccess: sessionAccess, SessionWorkspaceCount: sessionWorkspaceCount, ReceivedByInstanceID: receivedBy})
 
 	result, err := Result{}, preflightErr
+	registryCalled := false
 	if err == nil && forcedResult != nil {
 		result = *forcedResult
 	} else if err == nil {
+		registryCalled = true
 		result, err = r.Registry.Call(ctx, name, args)
 	}
+	hookEventType := hookObservationType(registryCalled, result, err)
+	r.observeToolHook(hookEventType, hookProvenance, name, workspaceID, args, &result, hookObservationError(hookEventType, result, err), started, hookObservationStatus(hookEventType))
 	if err == nil {
 		result = limitToolResult(result)
 	}
@@ -251,7 +338,7 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 	}
 	if err != nil {
 		if guard, ok := controlguard.As(err); ok {
-			if guardedResult, handled, guardErr := r.approvalResultForGuard(guard, sessionID, sessionHash, workspaceID, source, name, args, claimedApproval); guardErr != nil {
+			if guardedResult, handled, guardErr := r.approvalResultForGuard(ctx, guard, sessionID, sessionHash, approvalWorkspaceID, source, name, args, claimedApproval); guardErr != nil {
 				err = guardErr
 			} else if handled {
 				result, err = guardedResult, nil
@@ -278,7 +365,7 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 		finishRaw["status"] = status
 		finishRaw["result_type"] = result.ResultType
 		finishRaw["result"] = observedResult(name, result)
-		r.observeCall(CallObservation{CallID: callID, Phase: "finish", Source: source, Tool: name, WorkspaceID: workspaceID, Status: status, DurationMS: time.Since(started).Milliseconds(), Message: message, ResultType: result.ResultType, Raw: finishRaw, SessionHash: sessionHash, SessionAccess: sessionAccess, SessionWorkspaceCount: sessionWorkspaceCount, ReceivedByInstanceID: receivedBy, ExecutedByInstanceID: executedBy})
+		r.observeCall(CallObservation{CallID: callID, Phase: "finish", Source: source, TunnelID: tunnelID, TunnelName: tunnelName, Tool: name, WorkspaceID: workspaceID, Status: status, DurationMS: time.Since(started).Milliseconds(), Message: message, ResultType: result.ResultType, Raw: finishRaw, SessionHash: sessionHash, SessionAccess: sessionAccess, SessionWorkspaceCount: sessionWorkspaceCount, ReceivedByInstanceID: receivedBy, ExecutedByInstanceID: executedBy})
 		return result, nil
 	}
 
@@ -291,13 +378,13 @@ func (r *Runtime) Call(ctx context.Context, name string, args map[string]any) (R
 	finishRaw["status"] = status
 	finishRaw["error"] = message
 	if errors.Is(err, ErrToolNotFound) {
-		r.observeCall(CallObservation{CallID: callID, Phase: "finish", Source: source, Tool: name, WorkspaceID: workspaceID, Status: status, DurationMS: time.Since(started).Milliseconds(), Message: message, Raw: finishRaw, SessionHash: sessionHash, SessionAccess: sessionAccess, SessionWorkspaceCount: sessionWorkspaceCount, ReceivedByInstanceID: receivedBy, ExecutedByInstanceID: executedBy})
+		r.observeCall(CallObservation{CallID: callID, Phase: "finish", Source: source, TunnelID: tunnelID, TunnelName: tunnelName, Tool: name, WorkspaceID: workspaceID, Status: status, DurationMS: time.Since(started).Milliseconds(), Message: message, Raw: finishRaw, SessionHash: sessionHash, SessionAccess: sessionAccess, SessionWorkspaceCount: sessionWorkspaceCount, ReceivedByInstanceID: receivedBy, ExecutedByInstanceID: executedBy})
 		return Result{}, err
 	}
 	result = ErrorResult(err)
 	finishRaw["result_type"] = result.ResultType
 	finishRaw["result"] = observedResult(name, result)
-	r.observeCall(CallObservation{CallID: callID, Phase: "finish", Source: source, Tool: name, WorkspaceID: workspaceID, Status: status, DurationMS: time.Since(started).Milliseconds(), Message: message, ResultType: result.ResultType, Raw: finishRaw, SessionHash: sessionHash, SessionAccess: sessionAccess, SessionWorkspaceCount: sessionWorkspaceCount, ReceivedByInstanceID: receivedBy, ExecutedByInstanceID: executedBy})
+	r.observeCall(CallObservation{CallID: callID, Phase: "finish", Source: source, TunnelID: tunnelID, TunnelName: tunnelName, Tool: name, WorkspaceID: workspaceID, Status: status, DurationMS: time.Since(started).Milliseconds(), Message: message, ResultType: result.ResultType, Raw: finishRaw, SessionHash: sessionHash, SessionAccess: sessionAccess, SessionWorkspaceCount: sessionWorkspaceCount, ReceivedByInstanceID: receivedBy, ExecutedByInstanceID: executedBy})
 	return result, nil
 }
 

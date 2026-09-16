@@ -29,17 +29,22 @@ func TestMigratedEditorsResponsiveMatrix(t *testing.T) {
 			return editor
 		}},
 		{name: "mcp-server", make: func() component.Editor { editor, _ := newMCPServerEditor(upstream.Server{}, true); return editor }},
-		{name: "mcp-oauth", make: func() component.Editor { editor, _ := newMCPOAuthEditor(); return editor }},
-		{name: "tunnel-runtime", make: func() component.Editor {
-			editor, _ := newTunnelRuntimeEditor(application.TunnelDashboard{})
+		{name: "tunnel-local", make: func() component.Editor {
+			editor, _ := newLocalTunnelEditor(application.LocalTunnel{}, true, nil)
 			return editor
 		}},
-		{name: "tunnel-admin", make: func() component.Editor {
-			editor, _ := newTunnelAdminEditor(application.TunnelAdminStatus{})
+		{name: "tunnel-admin-profile", make: func() component.Editor {
+			editor, _ := newTunnelAdminProfileEditor(application.TunnelAdminProfile{}, true)
 			return editor
 		}},
-		{name: "managed-tunnel", make: func() component.Editor { editor, _ := newManagedTunnelEditor(tunnel.Metadata{}, true); return editor }},
-		{name: "managed-configure", make: func() component.Editor { editor, _ := newManagedConfigureEditor(false); return editor }},
+		{name: "managed-tunnel", make: func() component.Editor {
+			editor, _ := newManagedTunnelEditor(tunnel.Metadata{}, true, []application.TunnelAdminProfile{{ID: "default", ManageAccess: true}})
+			return editor
+		}},
+		{name: "managed-configure", make: func() component.Editor {
+			editor, _ := newManagedConfigureEditor([]application.TunnelAdminProfile{{ID: "default", ReadAccess: true}})
+			return editor
+		}},
 		{name: "config-convert", make: func() component.Editor { editor, _ := newConfigConvertEditor(configformat.TOML); return editor }},
 		{name: "config-import", make: func() component.Editor { editor, _ := newConfigBundleEditor(false); return editor }},
 		{name: "config-export", make: func() component.Editor { editor, _ := newConfigBundleEditor(true); return editor }},
@@ -85,7 +90,7 @@ func TestMajorPagesResponsiveMatrixBeforeRootFrame(t *testing.T) {
 	cases := []pageCase{
 		{name: "workspaces", make: func() (Model, error) { return NewWorkspaces(ctx, "") }},
 		{name: "mcp", make: func() (Model, error) { return NewMCP(ctx, "") }},
-		{name: "tunnel", make: func() (Model, error) { return NewTunnelDashboard(ctx) }},
+		{name: "tunnel", make: func() (Model, error) { return NewTunnelInstances(ctx, "", "") }},
 		{name: "requests", make: func() (Model, error) { return NewRequests(ctx, "") }},
 		{name: "logs", make: func() (Model, error) { return NewLogs(ctx) }},
 		{name: "config", make: func() (Model, error) { return NewConfig(ctx) }},

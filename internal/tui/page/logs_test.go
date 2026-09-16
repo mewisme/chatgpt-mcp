@@ -324,9 +324,9 @@ func TestLogsFilterFormUsesSharedQueryValidation(t *testing.T) {
 	if data.Visibility != "verbose" {
 		t.Fatalf("form visibility=%q", data.Visibility)
 	}
-	data.Tail, data.Level, data.Event = "25", "warn", "tool.*"
+	data.Tail, data.Level, data.Event, data.Tunnel = "25", "warn", "tool.*", "Alpha"
 	options, visibility, err := data.Options()
-	if err != nil || options.Tail != 25 || options.Level != "warn" || options.Event != "tool.*" || visibility != logger.VisibilityVerbose {
+	if err != nil || options.Tail != 25 || options.Level != "warn" || options.Event != "tool.*" || options.Tunnel != "Alpha" || visibility != logger.VisibilityVerbose {
 		t.Fatalf("options=%#v visibility=%d err=%v", options, visibility, err)
 	}
 	data.All, data.Session = true, "run_one"
@@ -371,8 +371,10 @@ func TestLogsClearRequiresExplicitConfirmationAndInfoShowsJournal(t *testing.T) 
 	}
 	page.openCommand(LogsClear)
 	page.confirm.Select(true)
-	if cmd := page.updateClearConfirm(tea.KeyPressMsg{Code: tea.KeyEnter}); cmd == nil || page.overlay != logsOverlayOperation {
-		t.Fatalf("confirmed clear cmd=%v overlay=%d", cmd, page.overlay)
+	if cmd := page.updateClearConfirm(tea.KeyPressMsg{Code: tea.KeyEnter}); cmd == nil {
+		t.Fatal("confirmed clear command missing")
+	} else if op, ok := operationMsg(cmd); !ok || op.Phase != OperationPending {
+		t.Fatalf("confirmed clear pending=%#v", op)
 	}
 	page.closeOverlay()
 	page.openCommand(LogsInfo)
@@ -468,13 +470,16 @@ func TestLogsClearKeepsLiveStreamAndStableNotice(t *testing.T) {
 	page.streamRunID = "run_live"
 	page.streamSeq = 41
 	page.events = []runtimeevent.Event{{RunID: "run_live", Sequence: 41, Message: "before clear"}}
-	updated, _ := page.Update(logsClearMsg{operation: 3})
+	updated, follow := page.Update(logsClearMsg{operation: 3})
 	page = updated.(*LogsPage)
-	if !page.connected || page.generation != 7 || len(page.events) != 0 || page.notice != "Runtime logs cleared" || !page.ShouldToastNotice() {
+	if !page.connected || page.generation != 7 || len(page.events) != 0 || page.notice != "" || page.ShouldToastNotice() {
 		t.Fatalf("clear state connected=%t generation=%d events=%d notice=%q toast=%t", page.connected, page.generation, len(page.events), page.notice, page.ShouldToastNotice())
 	}
+	if op, ok := operationMsg(follow); !ok || op.Message != "Runtime logs cleared" {
+		t.Fatalf("clear operation=%#v", op)
+	}
 	page.finishStreamEvent(logsStreamEventMsg{generation: 7, event: runtimeevent.Event{RunID: "run_live", Sequence: 42, Message: "after clear"}})
-	if page.notice != "Runtime logs cleared" || page.generation != 7 || page.streamSeq != 42 {
+	if page.notice != "" || page.generation != 7 || page.streamSeq != 42 {
 		t.Fatalf("live stream changed clear feedback: notice=%q generation=%d sequence=%d", page.notice, page.generation, page.streamSeq)
 	}
 }
@@ -1474,6 +1479,82 @@ func TestRuntimeTimelineFiltersToolCallsAndRendersVisibleFields(t *testing.T) {
 	}
 }
 
+func TestLogsAndToolCallsPreferTunnelLabelOverRawID(t *testing.T) {
+	const alphaID, betaID = "tunnel_aaaaaaaaaaaaaaaa", "tunnel_bbbbbbbbbbbbbbbb"
+	page, _ := NewLogs(t.Context())
+	defer page.Close()
+	alpha := runtimeevent.Event{Sequence: 1, Time: time.Now(), RunID: "run", Level: "info", Name: "tool.call.completed", Message: "ok", Source: "tunnel", TunnelID: alphaID, TunnelName: "Alpha"}
+	beta := runtimeevent.Event{Sequence: 2, Time: time.Now(), RunID: "run", Level: "info", Name: "tool.call.completed", Message: "ok", Source: "tunnel", TunnelID: betaID, TunnelName: "Beta"}
+	rowA, rowB := page.logRow(alpha), page.logRow(beta)
+	if !strings.Contains(rowA.Meta, "Alpha") || strings.Contains(rowA.Meta, alphaID) || !strings.Contains(rowA.Search, alphaID) || !strings.Contains(rowA.Search, "Alpha") {
+		t.Fatalf("alpha row meta=%q search=%q", rowA.Meta, rowA.Search)
+	}
+	if !strings.Contains(rowB.Meta, "Beta") || strings.Contains(rowB.Meta, betaID) || !strings.Contains(rowB.Search, betaID) {
+		t.Fatalf("beta row meta=%q search=%q", rowB.Meta, rowB.Search)
+	}
+	plain := ansi.Strip(renderRuntimeTimeline([]runtimeevent.Event{alpha, beta}, 120, logger.VisibilityVerbose).Content)
+	if !strings.Contains(plain, "Alpha") || !strings.Contains(plain, "Beta") || strings.Contains(plain, alphaID) || strings.Contains(plain, betaID) {
+		t.Fatalf("runtime timeline=%q", plain)
+	}
+
+	toolsPage, _ := NewToolCallLogsRoute(t.Context(), "")
+	defer toolsPage.Close()
+	toolsPage.view = logsViewBrowser
+	toolsPage.tools.events = []activity.Event{
+		{Sequence: 1, Timestamp: time.Now(), Kind: string(activity.EventToolCall), Phase: "finish", CallID: "call_a", Tool: "echo", Source: "tunnel", TunnelID: alphaID, TunnelName: "Alpha", Status: "ok"},
+		{Sequence: 2, Timestamp: time.Now(), Kind: string(activity.EventToolCall), Phase: "finish", CallID: "call_b", Tool: "echo", Source: "tunnel", TunnelID: betaID, TunnelName: "Beta", Status: "ok"},
+	}
+	toolsPage.rebuildToolCallBrowser()
+	if !toolsPage.browser.SelectID("call_a") {
+		t.Fatal("could not select alpha call")
+	}
+	row, ok := toolsPage.browser.Selected()
+	if !ok || !strings.Contains(row.Meta, "Alpha") || strings.Contains(row.Meta, alphaID) || !strings.Contains(row.Search, alphaID) {
+		t.Fatalf("tool row=%#v", row)
+	}
+	if !toolsPage.browser.SelectID("call_b") {
+		t.Fatal("could not select beta call")
+	}
+	row, ok = toolsPage.browser.Selected()
+	if !ok || !strings.Contains(row.Meta, "Beta") || strings.Contains(row.Meta, betaID) {
+		t.Fatalf("tool row=%#v", row)
+	}
+	timeline := ansi.Strip(renderToolCallTimeline(toolsPage.visibleToolCallRecords(), 120).Content)
+	if !strings.Contains(timeline, "Alpha") || !strings.Contains(timeline, "Beta") || strings.Contains(timeline, alphaID) || strings.Contains(timeline, betaID) {
+		t.Fatalf("tool timeline=%q", timeline)
+	}
+}
+
+func TestCommandExecutionPrefersTunnelLabelOverRawID(t *testing.T) {
+	const alphaID, betaID = "tunnel_aaaaaaaaaaaaaaaa", "tunnel_bbbbbbbbbbbbbbbb"
+	alpha := shellruntime.ExecutionInfo{ID: "exec_a", WorkspaceID: "ws_a", Tool: "run_command", Command: "echo a", Source: "tunnel", TunnelID: alphaID, TunnelName: "Alpha", Status: "success"}
+	beta := shellruntime.ExecutionInfo{ID: "exec_b", WorkspaceID: "ws_a", Tool: "run_command", Command: "echo b", Source: "tunnel", TunnelID: betaID, TunnelName: "Beta", Status: "success"}
+	fields := executionHeaderFields(shellruntime.ExecutionFeedEvent{Execution: &alpha}, true)
+	joined := ""
+	for _, field := range fields {
+		joined += field.Label + " " + strings.Join(field.Values, " ") + "\n"
+	}
+	if !strings.Contains(joined, "Alpha") || strings.Contains(joined, alphaID) || !strings.Contains(joined, "tunnel") {
+		t.Fatalf("header=%q", joined)
+	}
+	page, _ := NewCommandExecutionLogs(t.Context())
+	defer page.Close()
+	page.view = logsViewBrowser
+	page.exec.paused = true
+	page.exec.events = []shellruntime.ExecutionFeedEvent{
+		{Sequence: 1, ExecutionID: alpha.ID, Type: shellruntime.ExecutionEventStarted, Execution: &alpha},
+		{Sequence: 2, ExecutionID: beta.ID, Type: shellruntime.ExecutionEventStarted, Execution: &beta},
+	}
+	page.rebuildExecutionBrowser()
+	if !page.browser.SelectID("exec_a") {
+		t.Fatal("could not select alpha execution")
+	}
+	row, ok := page.browser.Selected()
+	if !ok || !strings.Contains(row.Meta, "Alpha") || strings.Contains(row.Meta, alphaID) || !strings.Contains(row.Search, alphaID) {
+		t.Fatalf("exec row=%#v", row)
+	}
+}
+
 func TestToolCallsMergeLifecycleAndRenderFullRequestResponse(t *testing.T) {
 	page, _ := NewToolCallLogsRoute(t.Context(), "")
 	defer page.Close()
@@ -1520,6 +1601,16 @@ func TestToolCallTimelineAlignsBodyWithLabels(t *testing.T) {
 	}
 	if labelColumn < 0 || bodyColumn < 0 || labelColumn != bodyColumn {
 		t.Fatalf("tool timeline columns label=%d body=%d: %q", labelColumn, bodyColumn, plain)
+	}
+}
+
+func TestToolCallClearShortcutMatchesCommandExecution(t *testing.T) {
+	page, _ := NewToolCallLogsRoute(t.Context(), "")
+	defer page.Close()
+	page.tools.events = []activity.Event{{Sequence: 1, CallID: "call_1", Tool: "read_file", Status: "ok"}}
+	page.handleToolCallKey(tea.KeyPressMsg{Code: 'c', Text: "c"})
+	if len(page.tools.events) != 0 || page.tools.notice != "Tool call stream view cleared" {
+		t.Fatalf("tool clear events=%d notice=%q", len(page.tools.events), page.tools.notice)
 	}
 }
 

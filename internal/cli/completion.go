@@ -7,7 +7,9 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"go.mewis.me/chatgpt-mcp/internal/application"
 	"go.mewis.me/chatgpt-mcp/internal/config"
+	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
 	"go.mewis.me/chatgpt-mcp/internal/runtimeevent"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
@@ -23,11 +25,7 @@ func configKeyCompletions() []configKeyCompletion {
 	result := make([]configKeyCompletion, 0, len(fields)+1)
 	result = append(result, configKeyCompletion{Key: "server.expose", Description: "server network exposure", Settable: true})
 	for _, spec := range fields {
-		settable := spec.Editable
-		if spec.Key == "tunnel.api_key" {
-			settable = true
-		}
-		result = append(result, configKeyCompletion{Key: spec.Key, Description: spec.Description, Settable: settable})
+		result = append(result, configKeyCompletion{Key: spec.Key, Description: spec.Description, Settable: spec.Editable})
 	}
 	return result
 }
@@ -163,6 +161,27 @@ func workspaceCompletions(cmd *cobra.Command, toComplete string) ([]string, cobr
 	return filterCompletions(values, toComplete), cobra.ShellCompDirectiveNoFileComp
 }
 
+func completeTunnelFilter(cmd *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	prepareCompletionConfigRoot(cmd)
+	items, err := application.LocalTunnels()
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	values := make([]string, 0, len(items)*2)
+	for _, item := range items {
+		name := ""
+		if item.Status.Metadata != nil {
+			name = strings.TrimSpace(item.Status.Metadata.Name)
+		}
+		if name != "" {
+			values = append(values, item.ID+"\t"+name, name+"\t"+item.ID)
+			continue
+		}
+		values = append(values, item.ID)
+	}
+	return filterCompletions(values, toComplete), cobra.ShellCompDirectiveNoFileComp
+}
+
 func workspaceContainerCompletions(cmd *cobra.Command, toComplete string) ([]string, cobra.ShellCompDirective) {
 	prepareCompletionConfigRoot(cmd)
 	items, err := workspace.NewManager(workspace.DefaultStorePath()).ListContainers()
@@ -232,6 +251,147 @@ func completeStatic(values ...string) cobra.CompletionFunc {
 		}
 		return filterCompletions(values, toComplete), cobra.ShellCompDirectiveNoFileComp
 	}
+}
+
+func completeTunnelDispatch(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	prepareCompletionConfigRoot(cmd)
+	switch len(args) {
+	case 0:
+		return completeTunnelProviderNames(toComplete)
+	case 1:
+		return filterCompletions([]string{"status", "start", "stop"}, toComplete), cobra.ShellCompDirectiveNoFileComp
+	case 2:
+		if args[1] == "status" || args[1] == "start" || args[1] == "stop" {
+			return filterCompletions([]string{"mcp", "admin", "all"}, toComplete), cobra.ShellCompDirectiveNoFileComp
+		}
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	default:
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+}
+
+func completeTunnelProviderAction(_ *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	switch len(args) {
+	case 0:
+		return filterCompletions([]string{"status", "start", "stop"}, toComplete), cobra.ShellCompDirectiveNoFileComp
+	case 1:
+		if args[0] == "status" || args[0] == "start" || args[0] == "stop" {
+			return filterCompletions([]string{"mcp", "admin", "all"}, toComplete), cobra.ShellCompDirectiveNoFileComp
+		}
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	default:
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+}
+
+func completeTunnelProviderNames(toComplete string) ([]string, cobra.ShellCompDirective) {
+	values := make([]string, 0)
+	for _, name := range application.KnownTunnelProviderNames() {
+		values = append(values, name+"\ttunnel provider")
+	}
+	return filterCompletions(values, toComplete), cobra.ShellCompDirectiveNoFileComp
+}
+
+func completePluginID(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	if len(args) > 0 {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	return pluginIDCompletions(cmd, toComplete)
+}
+
+func completePluginConfigKey(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	if len(args) == 0 {
+		return pluginIDCompletions(cmd, toComplete)
+	}
+	if len(args) > 1 {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	return pluginConfigKeyCompletions(cmd, args[0], toComplete)
+}
+
+func completePluginConfigSet(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	switch len(args) {
+	case 0:
+		return pluginIDCompletions(cmd, toComplete)
+	case 1:
+		return pluginConfigKeyCompletions(cmd, args[0], toComplete)
+	case 2:
+		return pluginConfigValueCompletions(cmd, args[0], args[1], toComplete)
+	default:
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+}
+
+func pluginIDCompletions(cmd *cobra.Command, toComplete string) ([]string, cobra.ShellCompDirective) {
+	prepareCompletionConfigRoot(cmd)
+	service, err := application.NewPluginService()
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	items, err := service.Installed()
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	values := make([]string, 0, len(items))
+	for _, item := range items {
+		values = append(values, string(item.ID))
+	}
+	sort.Strings(values)
+	return filterCompletions(values, toComplete), cobra.ShellCompDirectiveNoFileComp
+}
+
+func pluginConfigKeyCompletions(cmd *cobra.Command, pluginID, toComplete string) ([]string, cobra.ShellCompDirective) {
+	schema, _, err := pluginConfigSchema(cmd, pluginID)
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	values := make([]string, 0, len(schema.Fields))
+	for _, field := range schema.Fields {
+		label := field.Title
+		if label == "" {
+			label = field.Description
+		}
+		if label == "" {
+			values = append(values, field.Key)
+			continue
+		}
+		values = append(values, field.Key+"\t"+label)
+	}
+	sort.Strings(values)
+	return filterCompletions(values, toComplete), cobra.ShellCompDirectiveNoFileComp
+}
+
+func pluginConfigValueCompletions(cmd *cobra.Command, pluginID, key, toComplete string) ([]string, cobra.ShellCompDirective) {
+	schema, _, err := pluginConfigSchema(cmd, pluginID)
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	field, ok := schema.Field(key)
+	if !ok {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	switch field.Kind {
+	case pluginpkg.FieldBool:
+		return filterCompletions([]string{"true", "false"}, toComplete), cobra.ShellCompDirectiveNoFileComp
+	case pluginpkg.FieldEnum:
+		return filterCompletions(field.Enum, toComplete), cobra.ShellCompDirectiveNoFileComp
+	default:
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+}
+
+func pluginConfigSchema(cmd *cobra.Command, pluginID string) (pluginpkg.SettingsSchema, pluginpkg.PluginID, error) {
+	prepareCompletionConfigRoot(cmd)
+	id, err := simplePluginID(pluginID)
+	if err != nil {
+		return pluginpkg.SettingsSchema{}, "", err
+	}
+	service, err := application.NewPluginService()
+	if err != nil {
+		return pluginpkg.SettingsSchema{}, "", err
+	}
+	schema, err := service.Manager.SettingsSchema(id)
+	return schema, id, err
 }
 
 func prepareCompletionConfigRoot(cmd *cobra.Command) {

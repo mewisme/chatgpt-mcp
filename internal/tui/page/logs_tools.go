@@ -18,6 +18,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/activity"
 	"go.mewis.me/chatgpt-mcp/internal/runtimecontrol"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
+	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
 
 type logsToolCallFeed struct {
@@ -221,7 +222,7 @@ func (page *LogsPage) rebuildToolCallBrowser() {
 	for _, record := range page.visibleToolCallRecords() {
 		event := record.Latest
 		clock := event.Timestamp.Local().Format("15:04:05")
-		rows = append(rows, component.Row{ID: record.CallID, Title: compactParts(clock, event.Tool, event.Status), Description: record.CallID, Meta: event.WorkspaceID, Search: compactParts(record.CallID, event.Tool, event.Status, event.WorkspaceID, event.Source)})
+		rows = append(rows, component.Row{ID: record.CallID, Title: compactParts(clock, event.Tool, event.Status), Description: record.CallID, Meta: compactParts(tunnel.DisplayLabel(event.TunnelID, event.TunnelName), event.WorkspaceID), Search: compactParts(record.CallID, event.Tool, event.Status, event.WorkspaceID, event.Source, event.TunnelID, event.TunnelName)})
 	}
 	selected := ""
 	if row, ok := page.browser.Selected(); ok {
@@ -313,6 +314,9 @@ func renderToolCallTimeline(records []toolCallRecord, width int) executionFeedRe
 		if event.Source != "" {
 			fields = append(fields, logFrameField{Label: "Source", Values: []string{event.Source}})
 		}
+		if label := tunnel.DisplayLabel(event.TunnelID, event.TunnelName); label != "" {
+			fields = append(fields, logFrameField{Label: "Tunnel", Values: []string{label}})
+		}
 		content := toolCallTimelineContent(record, max(1, width-4))
 		footer := []logFrameField{{Label: "Status", Values: []string{event.Status}}}
 		if event.DurationMS > 0 {
@@ -377,7 +381,7 @@ func (page *LogsPage) syncToolCallDetail() {
 		}
 		data, _ := json.MarshalIndent(record.Latest, "", "  ")
 		content := component.RenderCodeBlock(string(data), "json", max(20, page.width))
-		meta := compactParts(record.Latest.Tool, record.Latest.Status, record.Latest.WorkspaceID)
+		meta := compactParts(record.Latest.Tool, record.Latest.Status, record.Latest.WorkspaceID, tunnel.DisplayLabel(record.Latest.TunnelID, record.Latest.TunnelName))
 		page.detail = component.NewDetailPage("Tool Call · "+record.CallID, meta, content).WithTitleVisible(false)
 		if page.width > 0 && page.height > 0 {
 			page.detail.Resize(page.width, page.height)
@@ -410,7 +414,7 @@ func (page *LogsPage) toolCallStatusView(width int) string {
 }
 
 func (page *LogsPage) toolCallHelpView(width int) string {
-	bindings := []key.Binding{component.Binding([]string{"h", "l", "left", "right"}, "←/→", "tabs"), component.Binding([]string{"v"}, "v", "view"), component.Binding([]string{"m"}, "m", "mode"), component.Binding([]string{"r"}, "r", "reconnect")}
+	bindings := []key.Binding{component.Binding([]string{"h", "l", "left", "right"}, "←/→", "tabs"), component.Binding([]string{"v"}, "v", "view"), component.Binding([]string{"m"}, "m", "mode"), component.Binding([]string{"r"}, "r", "reconnect"), component.Binding([]string{"c"}, "c", "clear view")}
 	bindings = append(bindings, component.Binding([]string{"space"}, "space", executionFollowLabel(page.tools.paused)))
 	return component.NewHelpFooter(bindings...).View(width)
 }
@@ -436,6 +440,11 @@ func (page *LogsPage) handleToolCallKey(msg tea.KeyPressMsg) tea.Cmd {
 		return nil
 	case "r":
 		return page.startToolCallFeed()
+	case "c":
+		page.tools.events = nil
+		page.tools.notice = "Tool call stream view cleared"
+		page.refreshActiveLogsView()
+		return nil
 	}
 	if page.view == logsViewBrowser {
 		before := ""

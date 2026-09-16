@@ -50,7 +50,7 @@ func TestMCPServersJSONRoundTripPreservesNormalizedServer(t *testing.T) {
 	original, err := NormalizeServer(Server{
 		ID: "mixed", Name: "Mixed", Transport: "stdio", Enabled: false, Command: "node", URL: "https://inactive.example/mcp", Args: []string{"server.js"},
 		Env: map[string]string{"API_TOKEN": "secret", "MODE": "test"}, CWD: "/tmp", Headers: map[string]string{"Authorization": "Bearer secret", "X-Test": "1"},
-		BearerTokenEnvVar: "MCP_TOKEN", Auth: AuthConfig{Type: "oauth", Scope: "read write"}, ToolPrefix: "mixed", Expose: "allowlist", Tools: []string{"read"}, DisabledTools: []string{"delete"}, IdleTimeoutSec: 42,
+		BearerTokenEnvVar: "MCP_TOKEN", ToolPrefix: "mixed", Expose: "allowlist", Tools: []string{"read"}, DisabledTools: []string{"delete"}, IdleTimeoutSec: 42,
 	})
 	if err != nil {
 		t.Fatal(err)

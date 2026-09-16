@@ -219,7 +219,7 @@ func (page *InstructionPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		page.saving = true
 		page.err, page.notice = nil, ""
 		page.ruleEditor.SetSubmitting(true)
-		return page, page.saveRuleEditorCmd()
+		return page, beginOperation("instruction.rule.save", "Instruction", "Saving rule...", page.saveRuleEditorCmd())
 	case component.EditorCancelMsg:
 		if page.ruleEditor != nil && !page.saving {
 			return page, page.ruleEditorParentNavigation()
@@ -254,9 +254,10 @@ func (page *InstructionPage) Update(message tea.Msg) (Model, tea.Cmd) {
 			return page, nil
 		}
 		page.settings, page.err = msg.settings, nil
-		page.notice = "Instructions refreshed"
 		page.syncDetail()
-		return page, nil
+		return page, func() tea.Msg {
+			return OperationResult("instruction.refresh", "Instruction", "Instructions refreshed", nil)
+		}
 	case instructionSavedMsg:
 		page.saving = false
 		if msg.err != nil {
@@ -264,7 +265,6 @@ func (page *InstructionPage) Update(message tea.Msg) (Model, tea.Cmd) {
 			return page, nil
 		}
 		page.settings, page.err = msg.settings, nil
-		page.notice = "Global context saved"
 		wasEditing := page.contextEditor != nil
 		page.contextEditor = nil
 		page.syncDetail()
@@ -272,7 +272,7 @@ func (page *InstructionPage) Update(message tea.Msg) (Model, tea.Cmd) {
 			return page, tea.Batch(
 				func() tea.Msg { return NavigateMsg{Path: []string{"instruction", "context"}, Replace: true} },
 				func() tea.Msg {
-					return ToastMsg{Title: "Instruction", Message: "Global context saved", Tone: component.ToneSuccess}
+					return OperationResult("instruction.context.save", "Instruction", "Global context saved", nil)
 				},
 			)
 		}
@@ -282,35 +282,32 @@ func (page *InstructionPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		if msg.err != nil {
 			if page.ruleEditor != nil {
 				page.ruleEditor.SetSubmitting(false)
-				page.ruleEditor.SetFeedback("", msg.err)
 			} else {
 				page.err = msg.err
 			}
-			return page, nil
+			return page, func() tea.Msg { return OperationResult("instruction.rule.save", "Instruction", "", msg.err) }
 		}
 		if page.ruleEditor != nil {
 			page.settings, page.err = msg.settings, nil
 			page.ruleEditor.SetSubmitting(false)
 			page.ruleEditor.Accept()
 			return page, tea.Batch(page.ruleEditorParentNavigation(), func() tea.Msg {
-				return ToastMsg{Title: "Instruction", Message: msg.notice, Tone: component.ToneSuccess}
+				return OperationResult("instruction.rule.save", "Instruction", msg.notice, nil)
 			})
 		}
 		page.settings, page.err = msg.settings, nil
-		page.notice = msg.notice
 		page.closeRuleConfirm()
 		page.syncRuleBrowser()
-		return page, nil
+		return page, func() tea.Msg { return OperationResult("instruction.rule.save", "Instruction", msg.notice, nil) }
 	case instructionSourcesSavedMsg:
 		page.saving = false
 		if msg.err != nil {
 			page.err = msg.err
-			return page, nil
+			return page, func() tea.Msg { return OperationResult("instruction.source.save", "Instruction", "", msg.err) }
 		}
 		page.settings, page.err = msg.settings, nil
-		page.notice = msg.notice
 		page.syncSourceTree()
-		return page, nil
+		return page, func() tea.Msg { return OperationResult("instruction.source.save", "Instruction", msg.notice, nil) }
 	case instructionSourceWheelMsg:
 		if page.tab == instructionTabSources {
 			page.updateSourceWheel(msg)

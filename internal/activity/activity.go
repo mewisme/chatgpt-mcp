@@ -11,6 +11,8 @@ type Event struct {
 	Phase                 string         `json:"phase,omitempty"`
 	Method                string         `json:"method,omitempty"`
 	Source                string         `json:"source,omitempty"`
+	TunnelID              string         `json:"tunnel_id,omitempty"`
+	TunnelName            string         `json:"tunnel_name,omitempty"`
 	Tool                  string         `json:"tool,omitempty"`
 	WorkspaceID           string         `json:"workspace_id,omitempty"`
 	SessionHash           string         `json:"session_hash,omitempty"`

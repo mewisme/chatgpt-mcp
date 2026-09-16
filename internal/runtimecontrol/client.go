@@ -49,30 +49,125 @@ type WorkspaceReloadResult struct {
 }
 
 type RuntimeStatus struct {
-	PID               int                 `json:"pid"`
-	RunID             string              `json:"run_id,omitempty"`
-	Lifecycle         string              `json:"lifecycle,omitempty"`
-	Starting          bool                `json:"starting,omitempty"`
-	Managed           bool                `json:"managed"`
-	ServiceID         string              `json:"service_id,omitempty"`
-	ServiceScope      string              `json:"service_scope,omitempty"`
-	StartedAt         time.Time           `json:"started_at"`
-	ConfigRoot        string              `json:"config_root"`
-	ConfigFingerprint string              `json:"config_fingerprint,omitempty"`
-	ServerEnabled     bool                `json:"server_enabled"`
-	ServerPort        int                 `json:"server_port"`
-	AdminEnabled      bool                `json:"admin_enabled"`
-	AdminPort         int                 `json:"admin_port"`
-	Exposure          config.ExposureMode `json:"exposure"`
-	TunnelEnabled     bool                `json:"tunnel_enabled"`
-	TunnelConfigured  bool                `json:"tunnel_configured"`
-	TunnelRunning     bool                `json:"tunnel_running"`
-	TunnelReady       bool                `json:"tunnel_ready"`
-	TunnelRestarting  bool                `json:"tunnel_restarting"`
-	TunnelID          string              `json:"tunnel_id,omitempty"`
-	TunnelLastError   string              `json:"tunnel_last_error,omitempty"`
-	ToolProfile       string              `json:"tool_profile,omitempty"`
-	ToolCount         int                 `json:"tool_count,omitempty"`
+	PID               int                    `json:"pid"`
+	RunID             string                 `json:"run_id,omitempty"`
+	Lifecycle         string                 `json:"lifecycle,omitempty"`
+	Starting          bool                   `json:"starting,omitempty"`
+	Managed           bool                   `json:"managed"`
+	ServiceID         string                 `json:"service_id,omitempty"`
+	ServiceScope      string                 `json:"service_scope,omitempty"`
+	StartedAt         time.Time              `json:"started_at"`
+	ConfigRoot        string                 `json:"config_root"`
+	ConfigFingerprint string                 `json:"config_fingerprint,omitempty"`
+	ServerEnabled     bool                   `json:"server_enabled"`
+	ServerPort        int                    `json:"server_port"`
+	AdminEnabled      bool                   `json:"admin_enabled"`
+	AdminPort         int                    `json:"admin_port"`
+	Exposure          config.ExposureMode    `json:"exposure"`
+	TunnelEnabled     bool                   `json:"tunnel_enabled"`
+	TunnelConfigured  bool                   `json:"tunnel_configured"`
+	TunnelRunning     bool                   `json:"tunnel_running"`
+	TunnelReady       bool                   `json:"tunnel_ready"`
+	TunnelRestarting  bool                   `json:"tunnel_restarting"`
+	TunnelID          string                 `json:"tunnel_id,omitempty"`
+	TunnelLastError   string                 `json:"tunnel_last_error,omitempty"`
+	TunnelSummary     TunnelSummary          `json:"tunnel_summary"`
+	Tunnels           []TunnelRuntimeStatus  `json:"tunnels,omitempty"`
+	TunnelProviders   []TunnelProviderStatus `json:"tunnel_providers,omitempty"`
+	CFTunnel          *CFTunnelStatus        `json:"cf_tunnel,omitempty"`
+	ToolProfile       string                 `json:"tool_profile,omitempty"`
+	ToolCount         int                    `json:"tool_count,omitempty"`
+}
+
+type TunnelSummary struct {
+	Total      int `json:"total"`
+	Enabled    int `json:"enabled"`
+	Configured int `json:"configured"`
+	Running    int `json:"running"`
+	Ready      int `json:"ready"`
+	Restarting int `json:"restarting"`
+	Degraded   int `json:"degraded"`
+}
+
+type TunnelRuntimeStatus struct {
+	ID         string `json:"id"`
+	Name       string `json:"name,omitempty"`
+	Enabled    bool   `json:"enabled"`
+	Configured bool   `json:"configured"`
+	Running    bool   `json:"running"`
+	Ready      bool   `json:"ready"`
+	Restarting bool   `json:"restarting"`
+	LastError  string `json:"last_error,omitempty"`
+}
+
+type TunnelProviderStatus struct {
+	Provider string                       `json:"provider"`
+	Name     string                       `json:"name,omitempty"`
+	PluginID string                       `json:"plugin_id,omitempty"`
+	Enabled  bool                         `json:"enabled"`
+	Targets  []TunnelProviderTargetStatus `json:"targets,omitempty"`
+}
+
+type TunnelProviderTargetStatus struct {
+	Target     string `json:"target"`
+	Desired    bool   `json:"desired"`
+	Running    bool   `json:"running"`
+	Ready      bool   `json:"ready"`
+	Restarting bool   `json:"restarting,omitempty"`
+	URL        string `json:"url,omitempty"`
+	Origin     string `json:"origin,omitempty"`
+	LastError  string `json:"last_error,omitempty"`
+	Ephemeral  bool   `json:"ephemeral,omitempty"`
+}
+
+func (s TunnelProviderTargetStatus) Line() string {
+	switch {
+	case s.Restarting:
+		if s.LastError != "" {
+			return "reconnecting · " + s.LastError
+		}
+		return "reconnecting"
+	case s.LastError != "":
+		return "degraded · " + s.LastError
+	case s.Ready && s.URL != "":
+		return s.URL + " · ephemeral"
+	case s.Running:
+		return "connecting"
+	case s.Desired:
+		return "offline"
+	default:
+		return "disabled"
+	}
+}
+
+func (s *CFTunnelStatus) AsProvider() TunnelProviderStatus {
+	if s == nil {
+		return TunnelProviderStatus{Provider: "cf", Name: "CF Tunnel", PluginID: "cf-tunnel"}
+	}
+	targets := make([]TunnelProviderTargetStatus, 0, len(s.Targets))
+	for _, item := range s.Targets {
+		targets = append(targets, TunnelProviderTargetStatus{
+			Target: item.Target, Desired: item.Desired, Running: item.Running, Ready: item.Ready, Restarting: item.Restarting,
+			URL: item.URL, Origin: item.Origin, LastError: item.LastError, Ephemeral: item.URL != "",
+		})
+	}
+	return TunnelProviderStatus{Provider: "cf", Name: "CF Tunnel", PluginID: "cf-tunnel", Enabled: s.PluginEnabled, Targets: targets}
+}
+
+type CFTunnelStatus struct {
+	PluginEnabled bool                   `json:"plugin_enabled"`
+	Targets       []CFTunnelTargetStatus `json:"targets,omitempty"`
+}
+
+type CFTunnelTargetStatus struct {
+	Target     string `json:"target"`
+	Desired    bool   `json:"desired"`
+	Running    bool   `json:"running"`
+	Ready      bool   `json:"ready"`
+	Restarting bool   `json:"restarting,omitempty"`
+	URL        string `json:"url,omitempty"`
+	Origin     string `json:"origin,omitempty"`
+	LastError  string `json:"last_error,omitempty"`
 }
 
 type State struct {

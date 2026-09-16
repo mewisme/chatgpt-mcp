@@ -11,13 +11,15 @@ const (
 )
 
 var readOnlyPaths = map[string]bool{
-	"help": true, "version": true, "status": true, "completion": true,
+	"": true, "help": true, "version": true, "status": true, "completion": true,
 	"config path": true, "config get": true, "config list": true, "config explain": true, "config verify": true, "config validate": true,
 	"auth status": true, "alias status": true, "upgrade check": true,
 	"request list": true, "request view": true, "request grant list": true,
 	"workspace list": true, "workspace show": true, "workspace access list": true,
 	"mcp server list": true, "mcp server show": true, "mcp server status": true, "mcp server tools": true,
-	"tunnel status": true, "logs": true, "logs follow": true, "logs path": true,
+	"plugin": true, "plugin search": true, "plugin info": true, "plugin list": true, "plugin outdated": true, "plugin verify": true, "plugin registry": true, "plugin registry list": true,
+	"plugin config": true, "plugin config list": true, "plugin config get": true,
+	"tunnel status": true, "tunnel cf": true, "tunnel cf status": true, "logs": true, "logs follow": true, "logs path": true,
 }
 
 var ancestorContextCheck = true
@@ -84,6 +86,11 @@ func PathFromArgs(args []string) string {
 		return strings.Join(args[:2], " ")
 	case "mcp":
 		if args[1] == "server" && len(args) >= 3 {
+			return strings.Join(args[:3], " ")
+		}
+		return strings.Join(args[:2], " ")
+	case "plugin":
+		if args[1] == "registry" && len(args) >= 3 {
 			return strings.Join(args[:3], " ")
 		}
 		return strings.Join(args[:2], " ")

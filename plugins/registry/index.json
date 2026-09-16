@@ -1,0 +1,145 @@
+{
+  "schema": 2,
+  "generated_at": "2026-09-15T00:00:00Z",
+  "plugins": {
+    "admin-ui": {
+      "publisher": "mewisme",
+      "name": "Admin UI",
+      "license": "Apache-2.0",
+      "description": "Static admin dashboard for ChatGPT MCP",
+      "type": "web-ui",
+      "scopes": ["global"],
+      "core": {
+        "required": false,
+        "enabled": true
+      },
+      "stable": "1.0.0",
+      "versions": {
+        "1.0.0": "admin-ui-1.0.0.json"
+      }
+    },
+    "bash": {
+      "publisher": "mewisme",
+      "name": "Bash Runtime",
+      "license": "GPL-2.0-only",
+      "description": "Portable Bash runtime for ChatGPT MCP on Windows",
+      "type": "runtime",
+      "scopes": ["global", "workspace"],
+      "stable": "1.0.1",
+      "versions": {
+        "1.0.0": "bash-1.0.0.json",
+        "1.0.1": "bash-1.0.1.json"
+      }
+    },
+    "rtk": {
+      "publisher": "mewisme",
+      "name": "RTK Command Wrapper",
+      "license": "Apache-2.0",
+      "description": "Host-backed RTK Token Killer command wrapper with verified portable install support",
+      "type": "command-wrapper",
+      "scopes": ["global", "workspace"],
+      "stable": "1.0.0",
+      "versions": {
+        "1.0.0": "rtk-1.0.0.json"
+      }
+    },
+    "cf-tunnel": {
+      "publisher": "mewisme",
+      "name": "CF Tunnel",
+      "license": "Apache-2.0",
+      "description": "Expose local MCP and Admin HTTP through Cloudflare Quick Tunnels",
+      "type": "runtime",
+      "scopes": ["global"],
+      "provides": ["tunnel/cf"],
+      "stable": "1.0.0",
+      "versions": {
+        "1.0.0": "cf-tunnel-1.0.0.json"
+      }
+    },
+    "secure-mcp-tunnel": {
+      "publisher": "mewisme",
+      "name": "Secure MCP Tunnel",
+      "license": "Apache-2.0",
+      "description": "OpenAI Secure MCP Tunnel runtime and control-plane client",
+      "type": "runtime",
+      "scopes": ["global"],
+      "provides": ["tunnel/secure-mcp"],
+      "core": {
+        "required": false,
+        "enabled": true
+      },
+      "stable": "1.0.0",
+      "versions": {
+        "1.0.0": "secure-mcp-tunnel-1.0.0.json"
+      }
+    },
+    "tui": {
+      "publisher": "mewisme",
+      "name": "Command Center",
+      "license": "Apache-2.0",
+      "description": "Full-screen terminal UI for ChatGPT MCP",
+      "type": "terminal-ui",
+      "scopes": ["global"],
+      "provides": ["terminal-ui/default"],
+      "core": {
+        "required": false,
+        "enabled": true
+      },
+      "stable": "1.0.0",
+      "versions": {
+        "1.0.0": "tui-1.0.0.json"
+      }
+    },
+    "markdown-formatter": {
+      "publisher": "mewisme",
+      "name": "Markdown Formatter",
+      "license": "Apache-2.0",
+      "description": "Rich terminal Markdown rendering for ChatGPT MCP",
+      "type": "formatter",
+      "scopes": ["global"],
+      "provides": ["formatter/markdown"],
+      "core": {
+        "required": false,
+        "enabled": true
+      },
+      "stable": "1.0.0",
+      "versions": {
+        "1.0.0": "markdown-formatter-1.0.0.json"
+      }
+    },
+    "ponytail": {
+      "publisher": "mewisme",
+      "name": "Ponytail",
+      "license": "Apache-2.0",
+      "description": "Smallest-correct-solution coding guidance",
+      "type": "tool-provider",
+      "scopes": ["global"],
+      "provides": ["tool-provider/ponytail"],
+      "core": {
+        "required": false,
+        "enabled": true
+      },
+      "stable": "1.0.0",
+      "versions": {
+        "1.0.0": "ponytail-1.0.0.json"
+      }
+    },
+    "caveman": {
+      "publisher": "mewisme",
+      "name": "Caveman",
+      "license": "Apache-2.0",
+      "description": "Compressed assistant prose while preserving technical meaning",
+      "type": "tool-provider",
+      "scopes": ["global"],
+      "provides": ["tool-provider/caveman"],
+      "core": {
+        "required": false,
+        "enabled": true
+      },
+      "stable": "1.0.0",
+      "versions": {
+        "1.0.0": "caveman-1.0.0.json"
+      }
+    }
+  }
+}

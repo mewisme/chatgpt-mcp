@@ -22,7 +22,7 @@ import (
 
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
-	"go.mewis.me/chatgpt-mcp/internal/oauth"
+	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
 	"go.mewis.me/chatgpt-mcp/internal/secretstore"
 	"go.mewis.me/chatgpt-mcp/internal/state"
 	"go.mewis.me/chatgpt-mcp/internal/upstream"
@@ -75,13 +75,19 @@ type ImportOptions struct {
 }
 
 type ImportResult struct {
-	Files        int
-	Secrets      int
-	SkippedPaths int
-	SkippedFiles int
-	BackupPath   string
-	Source       Platform
-	Target       Platform
+	Files              int
+	Secrets            int
+	SkippedPaths       int
+	SkippedFiles       int
+	BackupPath         string
+	Source             Platform
+	Target             Platform
+	PluginDesired      int
+	PluginSatisfied    int
+	PluginMissing      []string
+	PluginIncompatible []string
+	PluginPending      []string
+	PluginLockError    string
 }
 
 type workspaceRegistry struct {
@@ -149,6 +155,9 @@ func Import(root, source string, options ImportOptions) (ImportResult, error) {
 	if err != nil {
 		return ImportResult{}, err
 	}
+	if err := configformat.AssertMutableRoot(root); err != nil {
+		return ImportResult{}, err
+	}
 	source, err = absoluteClean(source)
 	if err != nil {
 		return ImportResult{}, err
@@ -190,6 +199,12 @@ func Import(root, source string, options ImportOptions) (ImportResult, error) {
 		if err := mergeImportedMainConfig(root, stage); err != nil {
 			return ImportResult{}, err
 		}
+		if err := preserveLocalPluginState(root, stage); err != nil {
+			return ImportResult{}, err
+		}
+	}
+	if _, err := pluginpkg.LoadConfig(filepath.Join(stage, "plugins.json")); err != nil {
+		return ImportResult{}, fmt.Errorf("verify imported plugin desired state: %w", err)
 	}
 	if err := configformat.MarkRoot(stage); err != nil {
 		return ImportResult{}, err
@@ -314,7 +329,7 @@ func collectFiles(root string) ([]File, int, error) {
 
 func excludedFile(relative string) bool {
 	relative = pathpkg.Clean(strings.TrimPrefix(relative, "./"))
-	if relative == ".runtime-control.json" || relative == "state/instance.json" || relative == "state/update.json" {
+	if relative == ".runtime-control.json" || relative == "plugins.lock.json" || relative == "state/instance.json" || relative == "state/update.json" {
 		return true
 	}
 	for _, prefix := range []string{"logs/", "runtime/", "state/secrets/"} {
@@ -345,28 +360,28 @@ func collectSecrets(root string) (map[string]string, error) {
 		return nil, err
 	}
 	add(tunnelEntries)
-	oauthEntries, err := oauth.NewStore(configformat.StructuredPath(root, "oauth")).SecretEntries()
-	if err != nil {
-		return nil, err
-	}
-	add(oauthEntries)
 	upstreamEntries, err := upstream.NewStore(configformat.StructuredPath(root, "upstream")).SecretEntries()
 	if err != nil {
 		return nil, err
 	}
 	add(upstreamEntries)
-	optionalRelay := secretstore.Name("cluster", "relay-token")
-	names := make([]string, 0, len(required)+1)
+	optional := map[string]bool{
+		secretstore.Name("cluster", "relay-token"): true,
+		config.MCPTokenSecretName:                  true,
+	}
+	names := make([]string, 0, len(required)+len(optional))
 	for name := range required {
 		names = append(names, name)
 	}
-	names = append(names, optionalRelay)
+	for name := range optional {
+		names = append(names, name)
+	}
 	sort.Strings(names)
 	store := secretstore.New(root)
 	result := map[string]string{}
 	for _, name := range names {
 		value, err := store.Get(name)
-		if errors.Is(err, secretstore.ErrNotFound) && name == optionalRelay {
+		if errors.Is(err, secretstore.ErrNotFound) && optional[name] {
 			continue
 		}
 		if err != nil {
@@ -406,6 +421,10 @@ func materialize(root string, bundle Bundle, target Platform) (materializeResult
 		relative, ok := safeRelative(item.Path)
 		if !ok {
 			return result, fmt.Errorf("config bundle contains unsafe path: %q", item.Path)
+		}
+		if relative == "plugins.lock.json" {
+			result.skippedFiles++
+			continue
 		}
 		data := item.Data
 		if topLevelStructured(relative, "config") {
@@ -449,6 +468,41 @@ func materialize(root string, bundle Bundle, target Platform) (materializeResult
 		result.files++
 	}
 	return result, nil
+}
+
+func preserveLocalPluginState(existingRoot, stagedRoot string) error {
+	for _, item := range []struct {
+		name      string
+		ifMissing bool
+	}{{name: "plugins.lock.json"}, {name: "plugins.json", ifMissing: true}} {
+		target := filepath.Join(stagedRoot, item.name)
+		if item.ifMissing {
+			if _, err := os.Stat(target); err == nil {
+				continue
+			} else if !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+		}
+		source := filepath.Join(existingRoot, item.name)
+		info, err := os.Lstat(source)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("local plugin state is not a regular file: %s", item.name)
+		}
+		data, err := os.ReadFile(source)
+		if err != nil {
+			return err
+		}
+		if err := state.WriteFileAtomic(target, data, 0600); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func normalizeMainConfig(relative string, data []byte, source, target Platform) ([]byte, int, error) {
@@ -560,10 +614,7 @@ func normalizeWorkspaceRegistry(file File, source, target Platform) ([]byte, map
 		oldID := item.ID
 		item.Path = mapped
 		item.AllowDirs = allowDirs
-		item.ID = workspace.IDForPath(mapped)
-		if oldID != "" && oldID != item.ID {
-			item.LegacyIDs = appendUnique(item.LegacyIDs, oldID)
-		}
+		item.LegacyIDs = append([]string(nil), item.LegacyIDs...)
 		mapping[oldID] = item.ID
 		roots[item.ID] = item.Path
 		items = append(items, item)
@@ -692,15 +743,6 @@ func safeRelative(value string) (string, bool) {
 func currentPlatform() Platform {
 	home, _ := os.UserHomeDir()
 	return Platform{OS: runtime.GOOS, Arch: runtime.GOARCH, Home: home}
-}
-
-func appendUnique(values []string, value string) []string {
-	for _, existing := range values {
-		if existing == value {
-			return values
-		}
-	}
-	return append(values, value)
 }
 
 func readBundle(file string) (Bundle, error) {

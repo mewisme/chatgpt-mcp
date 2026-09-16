@@ -22,7 +22,7 @@ cgm serve --verbose
 cgm serve --debug
 ```
 
-The default ChatGPT setup still uses OpenAI Secure MCP Tunnel; a foreground runtime starts the configured tunnel along with the local runtime.
+The default ChatGPT setup still uses OpenAI Secure MCP Tunnel; a foreground runtime starts every enabled attached tunnel instance against the same local runtime.
 
 ## Managed runtime
 
@@ -90,12 +90,13 @@ On remote Linux, use `--system` when a user service would otherwise stop after t
 cgm status
 ```
 
-Use status as the first operational overview. It reports the selected config root, runtime/service state, transport state, tunnel state, relevant endpoints, and registered resource summaries.
+Use status as the first operational overview. It reports the selected config root, runtime/service state, transport state, aggregate tunnel counts plus per-instance state, relevant endpoints, and registered resource summaries.
 
 For tunnel-specific state:
 
 ```bash
-cgm tunnel status
+cgm tunnel list
+cgm tunnel status [tunnel_id]
 ```
 
 ## Logs
@@ -152,18 +153,33 @@ See [Configuration](configuration.md).
 
 ## Tunnel lifecycle
 
-The normal managed runtime automatically starts the configured OpenAI Secure MCP Tunnel.
+The normal managed runtime starts every enabled attached OpenAI Secure MCP Tunnel instance through the `secure-mcp-tunnel` core plugin. Instances share one local `tools.Runtime` and keep independent sessions, reconnect loops, metadata, errors, and lifecycle state. Core does not own a live OpenAI tunnel client.
+
+If the plugin is missing, repair with `cgm plugin install secure-mcp-tunnel`. Direct MCP HTTP and Admin keep running.
 
 Useful commands:
 
 ```bash
-cgm tunnel status
-cgm tunnel enable
-cgm tunnel disable
-cgm tunnel run
+cgm tunnel list
+cgm tunnel status [tunnel_id]
+cgm tunnel enable tunnel_...
+cgm tunnel disable tunnel_...
+cgm tunnel start tunnel_...
+cgm tunnel stop tunnel_...
+cgm tunnel run tunnel_...
 ```
 
-`tunnel run` is a foreground tunnel-only operation; normal `serve` / `up` own the usual integrated lifecycle.
+`tunnel run <id>` is a foreground tunnel-only operation; normal `serve` / `up` own the usual integrated lifecycle. Runtime reload reconciles the collection differentially: adding/removing/changing one tunnel does not restart unrelated tunnel clients.
+
+Readiness is transport-wide: direct MCP HTTP can make the runtime usable on its own, otherwise at least one enabled/configured tunnel must become ready. Later failure of one tunnel is reported as degraded while the process keeps other tunnels running/reconnecting.
+
+### Identity and labels
+
+`Source=tunnel` means the request arrived over Secure MCP Tunnel. It is not which tunnel. Correlation, filters, approvals, and executions use `TunnelID` (`tunnel_...`). `TunnelName` is optional cached display metadata and is never fetched on the tool-call hot path.
+
+Dense CLI/TUI/Admin lists prefer the cached name. Duplicate names get a short-ID suffix such as `Production · c3330bcd`. The full ID stays in detail, copy/debug, search, and unnamed fallbacks.
+
+`--source tunnel` matches every tunnel ingress. `--tunnel <id-or-label>` selects one instance.
 
 See [OpenAI + ChatGPT](openai-chatgpt.md) for setup.
 

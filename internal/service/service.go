@@ -34,6 +34,7 @@ type Spec struct {
 	Scope           Scope
 	ConfigRoot      string
 	Binary          string
+	WorkDir         string
 	EnvironmentHash string
 	Account         Account
 }
@@ -80,8 +81,8 @@ func newSpecObserver(observer tracepkg.Observer, configRoot, binary string, scop
 		span.FailMessage("Managed service binary resolution failed", err)
 		return Spec{}, err
 	}
-	spec := Spec{ID: ID(filepath.Clean(absoluteRoot), scope), Scope: scope, ConfigRoot: filepath.Clean(absoluteRoot), Binary: binary, Account: account}
-	span.EndMessage("Managed service specification resolved", tracepkg.String("service", spec.ID), tracepkg.String("scope", string(spec.Scope)), tracepkg.String("config_root", spec.ConfigRoot), tracepkg.String("binary", spec.Binary), tracepkg.String("account", spec.Account.Username))
+	spec := Spec{ID: ID(filepath.Clean(absoluteRoot), scope), Scope: scope, ConfigRoot: filepath.Clean(absoluteRoot), Binary: binary, Account: account, WorkDir: pluginDevWorkDir()}
+	span.EndMessage("Managed service specification resolved", tracepkg.String("service", spec.ID), tracepkg.String("scope", string(spec.Scope)), tracepkg.String("config_root", spec.ConfigRoot), tracepkg.String("binary", spec.Binary), tracepkg.String("account", spec.Account.Username), tracepkg.String("work_dir", spec.WorkDir))
 	return spec, nil
 }
 

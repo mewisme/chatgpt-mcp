@@ -583,3 +583,40 @@ func testChallenge(sessionID, workspaceID, command string) ChallengeInput {
 		Arguments: map[string]any{"workspace_id": workspaceID, "command": command}, GuardCode: controlguard.CodeControlPlaneMutation, GuardReason: "control-plane mutation denied", Title: title, Command: command,
 	}
 }
+
+func TestChallengeRequestPreserveTunnelIdentityAndIsolateRetry(t *testing.T) {
+	manager, _ := testManager()
+	alpha, _, err := manager.CreateChallenge(ChallengeInput{
+		SessionID: "session-a", WorkspaceID: "ws_x", Source: "tunnel", TunnelID: "tunnel_a", TunnelName: "Alpha", TargetTool: "run_command",
+		Arguments: map[string]any{"workspace_id": "ws_x", "command": "cgm update"}, GuardCode: controlguard.CodeControlPlaneMutation, Title: "Allow alpha",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reqA, _, err := manager.CreateRequest(alpha.ID, "session-a", "ws_x")
+	if err != nil || reqA.Source != "tunnel" || reqA.TunnelID != "tunnel_a" || reqA.TunnelName != "Alpha" {
+		t.Fatalf("alpha request=%#v err=%v", reqA, err)
+	}
+	beta, _, err := manager.CreateChallenge(ChallengeInput{
+		SessionID: "session-b", WorkspaceID: "ws_x", Source: "tunnel", TunnelID: "tunnel_b", TunnelName: "Beta", TargetTool: "run_command",
+		Arguments: map[string]any{"workspace_id": "ws_x", "command": "cgm update"}, GuardCode: controlguard.CodeControlPlaneMutation, Title: "Allow beta",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reqB, _, err := manager.CreateRequest(beta.ID, "session-b", "ws_x")
+	if err != nil || reqB.TunnelID != "tunnel_b" || reqB.TunnelName != "Beta" {
+		t.Fatalf("beta request=%#v err=%v", reqB, err)
+	}
+	if _, err := manager.Approve(reqA.ID, "test", ""); err != nil {
+		t.Fatal(err)
+	}
+	args := map[string]any{"workspace_id": "ws_x", "command": "cgm update"}
+	if _, matched, err := manager.MatchApproved(RetryInput{SessionID: "session-a", WorkspaceID: "ws_x", Source: "tunnel", TunnelID: "tunnel_b", TargetTool: "run_command", Arguments: args}); err != nil || matched {
+		t.Fatalf("beta retry consumed alpha approval matched=%t err=%v", matched, err)
+	}
+	matched, ok, err := manager.MatchApproved(RetryInput{SessionID: "session-a", WorkspaceID: "ws_x", Source: "tunnel", TunnelID: "tunnel_a", TargetTool: "run_command", Arguments: args})
+	if err != nil || !ok || matched.ID != reqA.ID {
+		t.Fatalf("alpha retry missed: %#v ok=%t err=%v", matched, ok, err)
+	}
+}

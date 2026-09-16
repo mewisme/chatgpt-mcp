@@ -1,0 +1,70 @@
+{
+  "schema": 2,
+  "id": "cf-tunnel",
+  "name": "CF Tunnel",
+  "publisher": "mewisme",
+  "license": "Apache-2.0",
+  "version": "1.0.0",
+  "type": "runtime",
+  "scopes": ["global"],
+  "requires": {
+    "chatgpt-mcp": ">=0.2.25"
+  },
+  "provides": [
+    "tunnel/cf"
+  ],
+  "permissions": [
+    "process/execute",
+    "network/outbound"
+  ],
+  "config": {
+    "fields": [
+      {
+        "key": "mcp",
+        "type": "boolean",
+        "title": "Expose MCP HTTP",
+        "description": "Provision a Cloudflare Quick Tunnel to the local MCP HTTP listener",
+        "default": false
+      },
+      {
+        "key": "admin",
+        "type": "boolean",
+        "title": "Expose Admin HTTP",
+        "description": "Provision a Cloudflare Quick Tunnel to the local Admin HTTP listener",
+        "default": false
+      }
+    ]
+  },
+  "platforms": {
+    "linux/amd64": {
+      "artifact": "cf-tunnel-1.0.0-linux-amd64.zip",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "archive": "zip",
+      "entrypoint": "cf-tunnel"
+    },
+    "linux/arm64": {
+      "artifact": "cf-tunnel-1.0.0-linux-arm64.zip",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "archive": "zip",
+      "entrypoint": "cf-tunnel"
+    },
+    "darwin/amd64": {
+      "artifact": "cf-tunnel-1.0.0-darwin-amd64.zip",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "archive": "zip",
+      "entrypoint": "cf-tunnel"
+    },
+    "darwin/arm64": {
+      "artifact": "cf-tunnel-1.0.0-darwin-arm64.zip",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "archive": "zip",
+      "entrypoint": "cf-tunnel"
+    },
+    "windows/amd64": {
+      "artifact": "cf-tunnel-1.0.0-windows-amd64.zip",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "archive": "zip",
+      "entrypoint": "cf-tunnel.exe"
+    }
+  }
+}

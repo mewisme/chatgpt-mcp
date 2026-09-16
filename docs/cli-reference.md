@@ -90,6 +90,7 @@ chatgpt-mcp
 │   ├── set
 │   └── verify
 ├── down
+├── doctor
 ├── init
 ├── install
 ├── logs
@@ -100,6 +101,23 @@ chatgpt-mcp
 │   ├── http
 │   ├── stdio
 │   └── server      # deprecated compatibility path
+├── plugin
+│   ├── search
+│   ├── info
+│   ├── list
+│   ├── install
+│   ├── uninstall
+│   ├── enable
+│   ├── disable
+│   ├── update
+│   ├── rollback
+│   ├── prune
+│   ├── outdated
+│   ├── verify
+│   └── registry
+│       ├── list
+│       ├── add
+│       └── remove
 ├── request
 │   ├── approve
 │   ├── create
@@ -149,6 +167,7 @@ chatgpt-mcp
     │   └── remove
     ├── container
     ├── list
+    ├── purge
     ├── register
     ├── relocate
     ├── show
@@ -189,6 +208,86 @@ When the selected config root has a managed runtime, `cgm upgrade` restarts it a
 
 `cgm status` never performs a network update check. It may show availability from the fresh install-global cache at `<install-root>/state/update.json`.
 
+## Plugins
+
+Inspect signed registries and installed plugins:
+
+```bash
+cgm plugin search [query]
+cgm plugin info official/bash
+cgm plugin list
+cgm plugin list --scope global
+cgm plugin list --scope workspace --workspace ws_...
+cgm plugin outdated
+cgm plugin registry list
+```
+
+Manage lifecycle:
+
+```bash
+cgm plugin install official/bash
+cgm plugin install official/rtk --scope workspace --workspace ws_...
+cgm plugin verify bash
+cgm plugin disable bash
+cgm plugin enable bash --scope workspace --workspace ws_...
+cgm plugin update bash
+cgm plugin rollback bash
+cgm plugin rollback bash 1.2.3
+cgm plugin prune bash
+cgm plugin prune --retain 1 --cache
+cgm plugin uninstall bash
+```
+
+`--scope` is `global` or `workspace`. `--workspace` implies workspace scope. Search, info, registry, and `plugin config` stay global. See [Plugins](plugins.md#install-scope) for conflict rules and `.cgm` storage.
+
+Updates keep the active version plus two inactive rollback versions. Rollback re-resolves and re-verifies the exact signed manifest/artifact before activation instead of trusting the retained executable copy directly. `plugin prune [plugin] --retain N` removes older inactive versions; without a plugin it also removes orphaned versions from uninstalled plugins, and `--cache` clears only plugin registry/download cache plus stale extraction directories.
+
+Configure a custom registry only with an explicit pinned signing identity:
+
+```bash
+cgm plugin registry add community https://plugins.example.com/releases \
+  --issuer https://token.actions.githubusercontent.com \
+  --repository example/plugins
+cgm plugin registry remove community
+```
+
+See [Plugins](plugins.md) for authoring, security contracts, desired-state portability, rollback, and recovery.
+
+## Diagnose the local installation
+
+```bash
+cgm doctor
+cgm doctor --verbose
+cgm doctor --log-format json
+```
+
+`cgm doctor` is the canonical whole-application diagnostic. A default run is read-only: it never repairs, quarantines, installs, rotates tokens, sends notifications, or starts tunnels.
+
+It inspects install/config/storage, runtime control and managed services, listener/HTTP health, Direct MCP HTTP and Admin authentication, shell and tool registry, workspaces and Project Context, plugins (lock/payloads/desired/compatibility/host/registry plus `plugin.local-dev` when the isolated `.cgm/dev` store is active), upstream MCP servers, Secure MCP Tunnel collection, CF Tunnel MCP/Admin prerequisites, notifications, runtime journal, and update metadata. Doctor never rebuilds local-dev plugins; use `CHATGPT_MCP_DEV_PLUGINS=rebuild` for that.
+
+Results are `pass`, `warn`, `fail`, or `skip`. Disabled or unconfigured optional features are skipped, not treated as failures. Exit `0` when there are no `fail` results (warnings are allowed). Any `fail` makes the command return non-zero after the full report. External probes use short timeouts and clean up opened connections. JSON output uses stable check IDs; text output prefers human labels and hides skips unless `--verbose`.
+
+Network/update-server unavailability is normally a warning. Secrets, hashes, bearer values, and runtime-control tokens are never printed.
+
+See [Troubleshooting](troubleshooting.md).
+
+## Intentional single-surface commands
+
+These are not parity bugs:
+
+| Surface | Commands / options | Why |
+| --- | --- | --- |
+| CLI-only | `doctor`, `completion` | whole-app diagnostics and shell integration |
+| CLI-only | `config verify --strict` | extra-strict schema gate for scripts |
+| CLI-only | `plugin update --all`, `plugin prune --retain N`, `plugin prune --cache`, explicit `plugin rollback <id> <version>` | bulk/retention operators; TUI updates or rolls back one plugin |
+| CLI-only | `request create dummy`, `request grant list`, `request grant revoke` | test seeding and grant inspection; Admin/TUI approve with optional similar-command grant |
+| TUI shows the command | `serve`, `mcp stdio`, `mcp http`, `tunnel run`, `init`, `uninit` | they own the terminal |
+| TUI/Admin UI | Instruction editors and workspace Project Context preview | no CLI `instruction` or `context` namespace |
+| CLI/TUI | per-workspace access directories | stronger than Admin UI; global `permissions.allow_dirs` stays on Settings |
+| CLI/TUI | plugin install/enable/disable/update/rollback/prune | Admin UI Settings and workspace Plugins tabs edit schema-driven config only |
+
+`plugin config` is global-only on the CLI. TUI and Admin can edit workspace plugin settings.
+
 ## Control approval requests
 
 When an MCP tool hits an approvable control guard, the agent can create a short-lived human request with the `request_control_approval` MCP tool. Local operators inspect and resolve those requests through the running runtime:
@@ -205,11 +304,13 @@ Aliases include `req`, `ls`, `show`/`info`, `accept`/`allow`, and `reject`. Requ
 
 Pending requests expire after 60 seconds. Approval does not grant a general CLI bypass: it authorizes one exact retry of the original MCP tool arguments. A mismatched retry is rejected without consuming the valid grant; a successful retry consumes it. `cgm request approve/deny` cannot be run by an MCP shell tool to self-approve its own request.
 
+TUI and the Admin UI Requests page can additionally grant a one-hour similar-command runtime session when the request includes a similar-command pattern. Inspect or revoke those grants with `cgm request grant list` and `cgm request grant revoke`. The Admin UI mounts both a global Requests page and a workspace-scoped Requests tab.
+
 `cgm request create dummy` creates a short-lived pending request through the same runtime approval manager and event stream as production requests. It is intended for testing the request TUI and admin approval UI; its random dummy session cannot match a real MCP retry grant.
 
 ## TUI Command Center
 
-`cgm tui` is the dedicated full-screen interactive application. Normal CLI commands remain the stable scriptable interface.
+`cgm tui` is the dedicated full-screen interactive application. It launches the `tui` core plugin and stays a small core command. Normal CLI commands remain the stable scriptable interface.
 
 ```bash
 cgm tui
@@ -300,9 +401,13 @@ cgm logs --workspace ~/projects/my-project
 cgm logs --tool run_command
 cgm logs --status error
 cgm logs --source tunnel
+cgm logs --tunnel Alpha
+cgm logs --tunnel tunnel_...
 cgm logs --event 'tool.call.*'
 cgm logs --grep timeout
 ```
+
+`--source tunnel` matches every Secure MCP Tunnel ingress. `--tunnel` matches one instance by cached name or canonical ID. Completion offers attached IDs and cached labels. JSON log output includes typed `tunnel_id` / `tunnel_name` fields; `source` remains the transport type.
 
 Journal management:
 
@@ -341,9 +446,10 @@ cgm config set server.enabled false
 cgm config set server.port 41021
 cgm config set admin.port 41022
 cgm config set server.expose none
+cgm config set notifications.enabled true
 ```
 
-At least one MCP transport must remain enabled: `server.enabled` for direct MCP HTTP or `tunnel.enabled` for OpenAI Secure MCP Tunnel.
+At least one MCP transport must remain enabled: `server.enabled` for direct MCP HTTP or at least one enabled local tunnel instance. Tunnel collections are edited with `cgm tunnel ...`, not scalar `config set` keys.
 
 Successful config mutations automatically apply to a running process. If the runtime is stopped, they take effect on the next start.
 
@@ -385,7 +491,7 @@ cgm config import
 
 Both commands default to `chatgpt-mcp-config.cgm` in the current directory. Pass an explicit file only when a custom path/name is needed, for example `cgm config export laptop.cgm` and `cgm config import laptop.cgm`.
 
-`config export` creates one sealed bundle containing portable persistent config/state plus all currently managed reversible secrets. `config import` restores that bundle on Linux, macOS, or Windows and rebuilds the destination secret store instead of copying source secret files. Existing config/state requires `--force` on import; an existing bundle requires `--force` on export. Import requires the selected runtime to be stopped.
+`config export` creates one sealed bundle containing portable persistent config/state plus all currently managed reversible secrets. Plugin registry/desired state is portable, but `plugins.lock.json`, installed executable payloads, and registry/download cache are not exported. `config import` restores that intent on Linux, macOS, or Windows, reports missing/incompatible/pending plugins without silently installing them, and rebuilds the destination secret store instead of copying source secret files. Existing config/state requires `--force` on import; an existing bundle requires `--force` on export. Import requires the selected runtime to be stopped.
 
 Machine-local filesystem paths are normalized during import. Home-relative paths are mapped to the destination user's home when the corresponding directory exists; unavailable paths and workspaces are skipped. Runtime control state, logs, managed-service environment snapshots, instance identity, shell session state, checkpoints, update cache, and raw secret-store files are intentionally not migrated.
 
@@ -401,7 +507,10 @@ cgm config list --toml
 
 ```bash
 cgm auth status
-cgm auth mcp create
+cgm auth mcp status
+cgm auth mcp show
+cgm auth mcp copy
+cgm auth mcp rotate
 cgm auth admin create
 cgm auth mcp enable
 cgm auth mcp disable
@@ -409,13 +518,11 @@ cgm auth admin enable
 cgm auth admin disable
 ```
 
-`cgm mcp stdio` does not use OAuth transport authentication. `cgm mcp http` uses OAuth as the canonical protected transport and keeps the existing static MCP bearer only as a compatibility path controlled by `auth.mcp_legacy_bearer`.
+Direct MCP HTTP authentication protects `/mcp` only. `cgm mcp stdio` does not use HTTP bearer authentication. `cgm mcp http` uses the Direct MCP HTTP token when `auth.mcp_enabled` is true. Secure MCP Tunnel uses separate credentials and is unaffected.
 
-```bash
-cgm config set auth.mcp_legacy_bearer false
-```
+Reuse the Direct MCP HTTP token when adding this MCP server to ChatGPT. You do not need to generate a new token for each connection. `cgm auth mcp show` and `cgm auth mcp copy` reuse the stored token; `cgm auth mcp rotate` replaces it. `cgm auth mcp create` remains as a deprecated alias for rotate.
 
-Rotating the MCP credential invalidates OAuth codes/tokens issued under the previous credential generation.
+Legacy hash-only Direct MCP HTTP tokens are configured but not revealable until one rotate writes the encrypted secret.
 
 Use subcommand help for enable/disable/rotation options exposed by the current binary:
 
@@ -445,7 +552,7 @@ If the project directory has already been renamed or moved, rebind the existing 
 cgm workspace relocate ws_... /new/path/to/project
 ```
 
-`relocate` does not move project files. It updates the registered canonical root after the filesystem move, derives the new path-based workspace ID, retains the previous ID as a legacy alias, migrates workspace-scoped persistent state, rewrites state paths rooted under the old project directory, preserves container membership, and synchronizes a running runtime before returning. Workspace-specific extra roots that were inside the old root are rebased to the new root; unrelated external access roots are left unchanged. Managed background processes that were already started remain addressable through the relocated workspace while the current runtime is alive.
+`relocate` does not move project files. It updates the registered canonical root after the filesystem move, keeps the existing workspace ID, rewrites state paths rooted under the old project directory, preserves container membership, and synchronizes a running runtime before returning. Workspace-specific extra roots that were inside the old root are rebased to the new root; unrelated external access roots are left unchanged. Managed background processes that were already started remain addressable through the relocated workspace while the current runtime is alive.
 
 Manage logical workspace containers:
 
@@ -471,12 +578,19 @@ workspace_container_context(container_id="wsc_...")
 
 `wsc_*` is orchestration-only. Filesystem, Git, shell, memory, rule, checkpoint, and `project_context` calls still require one concrete member `ws_*` as `workspace_id`. Passing an existing container ID as `workspace_id` fails with guidance to resolve the container and choose a member; cgm never fans an operation out or silently selects the first member.
 
-When the runtime is already running, every successful CLI workspace-registry mutation synchronously reloads runtime state before returning. This covers workspace register/relocate/unregister, access add/remove, container create/rename/delete, and membership add/remove. The next MCP read therefore sees the change without restarting the runtime or reconnecting the MCP session. If runtime synchronization fails, the CLI reports the failure even though the registry mutation may already have been persisted.
+When the runtime is already running, every successful CLI workspace-registry mutation synchronously reloads runtime state before returning. This covers workspace register/relocate/unregister/purge, access add/remove, container create/rename/delete, and membership add/remove. The next MCP read therefore sees the change without restarting the runtime or reconnecting the MCP session. If runtime synchronization fails, the CLI reports the failure even though the registry mutation may already have been persisted.
 
-Remove the registry handle without deleting project files:
+Remove the registry handle without deleting `.cgm` or project files:
 
 ```bash
 cgm workspace unregister ws_...
+```
+
+Delete local `.cgm` state after explicit confirmation. This unregisters the workspace if needed:
+
+```bash
+cgm workspace purge ws_... --confirm
+cgm workspace purge ~/projects/copied-project --confirm
 ```
 
 Additional workspace roots:
@@ -489,32 +603,61 @@ cgm workspace access remove ws_... /path/to/cache
 
 ## OpenAI Secure MCP Tunnel
 
-Configure:
+Local instances:
 
 ```bash
-cgm tunnel configure \
-  --enabled \
-  --id tunnel_... \
-  --api-key 'sk-...'
+cgm tunnel list
+cgm tunnel status [tunnel_id]
+cgm tunnel add tunnel_... --runtime-api-key 'sk-...'
+cgm tunnel update tunnel_... [--runtime-api-key 'sk-...']
+cgm tunnel attach tunnel_... --admin personal --runtime-api-key 'sk-...'
+cgm tunnel detach tunnel_...
+cgm tunnel enable tunnel_...
+cgm tunnel disable tunnel_...
+cgm tunnel start tunnel_...
+cgm tunnel stop tunnel_...
+cgm tunnel run tunnel_...
 ```
 
-Optional flags:
+`add` attaches an existing runtime key as another local instance. `update` changes that instance; a blank `--runtime-api-key` keeps the current secret. `attach` converts a managed remote tunnel into a new local instance and does not replace an existing attachment.
+
+`attach` also accepts:
 
 ```text
---control-plane-base-url <url>
---organization-id <org_...>
+--admin <profile>
+--runtime-api-key <key>
+--auto-runtime-key
+--project-id <project>
+--disabled
 ```
 
-Lifecycle:
+Admin profiles:
 
 ```bash
-cgm tunnel status
-cgm tunnel enable
-cgm tunnel disable
-cgm tunnel run
+cgm tunnel admin list
+cgm tunnel admin add personal --admin-key 'sk-admin-...' --organization-id org_...
+cgm tunnel admin update personal [--organization-id org_...]
+cgm tunnel admin verify personal
+cgm tunnel admin remove personal
 ```
 
+Exactly one scope flag (`--organization-id`, `--workspace-id`, or `--tenant-id`) is used when adding a profile. Admin credentials are management-only and never become tunnel runtime keys.
+
+Managed remote tunnels:
+
+```bash
+cgm tunnel managed list [--admin profile]
+cgm tunnel managed get tunnel_... [--admin profile]
+cgm tunnel managed create --admin profile --name NAME --description DESCRIPTION [scope flags]
+cgm tunnel managed update tunnel_... --admin profile [fields]
+cgm tunnel managed delete tunnel_... --admin profile --confirm
+```
+
+Discovery without `--admin` can aggregate multiple profiles and preserves profile provenance. If the same remote tunnel is reachable through multiple profiles, operations that need one management credential require an explicit `--admin`.
+
 See [OpenAI + ChatGPT setup](openai-chatgpt.md) for Platform/ChatGPT configuration.
+
+Cloudflare Quick Tunnel is a separate optional plugin (`cf-tunnel`) with `cgm tunnel cf ...`. It does not share Secure MCP collection, admin profiles, or OpenAI runtime keys.
 
 ## Upstream MCP servers
 
@@ -570,7 +713,7 @@ Status is the main read-only overview for:
 - runtime session ID
 - PID/start information
 - MCP HTTP enabled/disabled state and endpoint when enabled
-- tunnel enabled/configured/live state
+- aggregate tunnel counts and per-instance enabled/configured/live state
 - registered workspaces
 - upstream servers
 - cached update availability when a fresh install-global cache exists

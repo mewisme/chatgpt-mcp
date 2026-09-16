@@ -24,7 +24,7 @@ cgm workspace list
 cgm workspace show ws_...
 ```
 
-Workspace IDs are derived from the canonical workspace path. Existing legacy IDs may remain usable as aliases after migration or relocation.
+Workspace identity lives in `<workspace>/.cgm/workspace.json` and is stable across register, restart, unregister/re-register, and relocate. Older path-derived IDs may remain usable as aliases after migration.
 
 ## Effective filesystem scope
 
@@ -70,8 +70,32 @@ Switching between workspaces does not merge their:
 - rules and skills
 - checkpoints/rewind state
 - approval state
+- workspace-scoped plugins and their config/payloads
 
 This isolation is why concrete `ws_*` targets remain required even when several projects belong to the same workspace container.
+
+## Local `.cgm` state
+
+Each registered workspace owns persistent state under `<workspace>/.cgm`:
+
+```text
+.cgm/workspace.json   stable workspace identity
+.cgm/config.json      workspace-specific access and aliases
+.cgm/state/           shell/REPL and other workspace-owned state
+.cgm/memory/          workspace memory
+.cgm/checkpoints/     rewind snapshots
+.cgm/plugins/         workspace-scoped plugin desired/lock/config/payloads
+.cgm/cache/           rebuildable cache
+.cgm/runtime/lock     OS-backed exclusive runtime lock
+```
+
+Workspace plugin desired state is `.cgm/plugins/desired.json`, lock state is `.cgm/plugins/lock.json`, per-plugin settings are `.cgm/plugins/config/<id>.json`, and payloads are `.cgm/plugins/data`. Plugin registries and the download cache stay global. Relocate keeps plugin state because `.cgm` moves with the project directory. `workspace purge` deletes `.cgm`, including workspace plugins. Unregister unloads runtime plugin stores but leaves `.cgm` on disk.
+
+The global `workspaces.json` index stores only identity/path pointers. Registering a workspace creates `.cgm` when it is missing and reuses an existing identity instead of minting a new ID. Leftover global `workspaces/<id>` state is copied into `.cgm` on load: missing files are added, checkpoint indexes are merged by ID, existing local files win on other conflicts, and the leftover directory is then removed.
+
+For Git checkouts, CGM adds the correct rooted `.cgm/` pattern to Git's `info/exclude`. It does not create `.cgm/.gitignore` and does not edit project `.gitignore`.
+
+Public CGM filesystem tools and clearly destructive shell commands cannot mutate an active workspace's `.cgm` directory. That protection applies to CGM operations only; an external `rm -rf .cgm` is still possible on the host.
 
 ## Relocate a moved project
 
@@ -81,7 +105,7 @@ If the project directory has already been renamed or moved, relocate the existin
 cgm workspace relocate ws_... /new/path/to/project
 ```
 
-Relocation updates the trusted root and derives the new path-based workspace ID. The previous ID is retained as a legacy alias, workspace-scoped persistent state follows the project, and container membership is preserved.
+Relocation updates the trusted root and keeps the existing workspace ID. Workspace-scoped persistent state stays with the project directory, and container membership is preserved.
 
 Relocate does **not** move project files. It is a trusted local control-plane operation available through CLI, TUI, and Admin surfaces rather than an Agent filesystem tool.
 
@@ -113,5 +137,22 @@ If an operation reports a synchronization failure, inspect runtime status/logs b
 - Keep different trust domains in separate workspaces or separate runtime instances where appropriate.
 - Use containers for grouping/orchestration, never as permission shortcuts.
 - Relocate an existing workspace after a project moves instead of registering a duplicate.
+
+## Unregister vs purge
+
+`unregister` removes the workspace from the local index and releases its runtime lock. Project files and `.cgm` stay on disk, so a later register of the same directory restores the same identity and state.
+
+Delete local state only with an explicit destructive command:
+
+```bash
+cgm workspace purge ws_... --confirm
+cgm workspace purge ~/projects/copied-project --confirm
+```
+
+`purge` unregisters the workspace if needed, then deletes `<workspace>/.cgm`. Use it to reinitialize a copied project that duplicated another workspace's identity. It refuses while another CGM runtime still holds that workspace's lock.
+
+## Unavailable workspaces
+
+A missing directory or corrupt `.cgm` identity stays in the index. `workspace list` and `workspace show` report it as unavailable, sibling workspaces still load, and CGM does not mint a replacement ID. Unregister or purge the entry, or relocate it after the project directory is restored.
 
 See [Security](security.md) for the trust model and [Configuration](configuration.md) for persistent access settings.

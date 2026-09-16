@@ -21,6 +21,22 @@ func (a *App) Start(ctx context.Context) error {
 		span.FailMessage("Application runtime bootstrap failed", err)
 		return err
 	}
+	if a.Tools != nil && a.Tools.Workspaces != nil {
+		workspaceSpan := tracepkg.Start(ctx, "APP", "app.workspaces.activate", "Activating workspace runtime state")
+		if err := a.Tools.Workspaces.Activate(); err != nil {
+			workspaceSpan.FailMessage("Workspace runtime activation failed", err)
+			span.FailMessage("Application runtime start failed", err)
+			return err
+		}
+		workspaces, err := a.Tools.Workspaces.List()
+		if err != nil {
+			_ = a.Tools.Workspaces.Deactivate()
+			workspaceSpan.FailMessage("Workspace runtime validation failed", err)
+			span.FailMessage("Application runtime start failed", err)
+			return err
+		}
+		workspaceSpan.EndMessage("Workspace runtime state activated", tracepkg.Int("workspace_count", len(workspaces)))
+	}
 	a.runtimeCtx = ctx
 	if a.Tools != nil {
 		go func() {
@@ -37,16 +53,6 @@ func (a *App) Start(ctx context.Context) error {
 			refreshSpan.EndMessage("Initial upstream MCP discovery completed")
 		}()
 	}
-	if a.Tunnel != nil {
-		tunnelSpan := tracepkg.Start(ctx, "APP", "app.tunnel.start", "Starting tunnel runtime")
-		if err := a.Tunnel.StartContext(ctx); err != nil {
-			tunnelSpan.FailMessage("Tunnel runtime start failed", err)
-			span.FailMessage("Application runtime start failed", err)
-			a.runtimeCtx = nil
-			return err
-		}
-		tunnelSpan.EndMessage("Tunnel runtime started", tracepkg.Bool("enabled", a.Tunnel.Status().Enabled), tracepkg.Bool("running", a.Tunnel.Status().Running))
-	}
 	a.running = true
 	span.EndMessage("Application runtime started", tracepkg.Bool("running", true))
 	return nil
@@ -54,6 +60,13 @@ func (a *App) Start(ctx context.Context) error {
 
 func (a *App) Stop() error {
 	span := tracepkg.StartObserver(a.trace, "APP", "app.runtime.stop", "Stopping application runtime")
+	if a.Notifications != nil {
+		a.Notifications.Stop()
+	}
+	if a.Bridge != nil {
+		_ = a.Bridge.Close()
+		a.Bridge = nil
+	}
 	if a.MCP != nil {
 		subscriptionsSpan := tracepkg.StartObserver(a.trace, "APP", "app.mcp.subscriptions.close", "Closing MCP subscriptions")
 		if a.Logger != nil {
@@ -72,19 +85,6 @@ func (a *App) Stop() error {
 			defer wg.Done()
 			if err := a.Tools.Processes.Shutdown(ctx); err != nil {
 				errCh <- err
-			}
-		}()
-	}
-	if a.Tunnel != nil {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			tunnelSpan := tracepkg.StartObserver(a.trace, "APP", "app.tunnel.stop", "Stopping tunnel runtime")
-			if err := a.Tunnel.StopContext(ctx); err != nil {
-				tunnelSpan.FailMessage("Tunnel runtime stop failed", err)
-				errCh <- err
-			} else {
-				tunnelSpan.EndMessage("Tunnel runtime stopped")
 			}
 		}()
 	}
@@ -115,6 +115,15 @@ func (a *App) Stop() error {
 	var stopErr error
 	for err := range errCh {
 		stopErr = errors.Join(stopErr, err)
+	}
+	if a.Tools != nil && a.Tools.Workspaces != nil {
+		workspaceSpan := tracepkg.StartObserver(a.trace, "APP", "app.workspaces.deactivate", "Releasing workspace runtime state")
+		if err := a.Tools.Workspaces.Deactivate(); err != nil {
+			workspaceSpan.FailMessage("Workspace runtime deactivation failed", err)
+			stopErr = errors.Join(stopErr, err)
+		} else {
+			workspaceSpan.EndMessage("Workspace runtime state released")
+		}
 	}
 	a.runtimeCtx = nil
 	a.running = false

@@ -12,8 +12,6 @@ import (
 	"strings"
 	"time"
 
-	tunnelclient "github.com/openai/tunnel-client"
-
 	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 )
 
@@ -185,7 +183,7 @@ func findOrCreateRuntimeServiceAccount(ctx context.Context, cfg Config, projectI
 func adminPlatformRequest(ctx context.Context, cfg Config, method, path string, body any, output any) error {
 	baseURL := strings.TrimRight(strings.TrimSpace(cfg.ControlPlaneBaseURL), "/")
 	if baseURL == "" {
-		baseURL = strings.TrimRight(tunnelclient.DefaultControlPlaneBaseURL, "/")
+		baseURL = strings.TrimRight(DefaultControlPlaneBaseURL, "/")
 	}
 	parsed, err := url.Parse(baseURL)
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {

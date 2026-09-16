@@ -12,34 +12,12 @@ import (
 )
 
 type Options struct {
-	AllowPrivate   bool
-	TrustedOrigins []string
-	LookupIPAddr   func(ctx context.Context, host string) ([]net.IPAddr, error)
+	AllowPrivate bool
+	LookupIPAddr func(ctx context.Context, host string) ([]net.IPAddr, error)
 }
 
 func IsPublicIP(ip net.IP) bool {
 	return ip != nil && !ip.IsLoopback() && !ip.IsPrivate() && !ip.IsLinkLocalUnicast() && !ip.IsLinkLocalMulticast() && !ip.IsUnspecified() && !ip.IsMulticast()
-}
-
-func SameOrigin(value *url.URL, raw string) bool {
-	trusted, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil || trusted.Host == "" {
-		return false
-	}
-	return strings.EqualFold(value.Scheme, trusted.Scheme) && strings.EqualFold(value.Hostname(), trusted.Hostname()) && EffectivePort(value) == EffectivePort(trusted)
-}
-
-func EffectivePort(value *url.URL) string {
-	if port := value.Port(); port != "" {
-		return port
-	}
-	if value.Scheme == "https" {
-		return "443"
-	}
-	if value.Scheme == "http" {
-		return "80"
-	}
-	return ""
 }
 
 func ParseHTTPURL(raw string) (*url.URL, error) {
@@ -55,18 +33,6 @@ func ValidateURL(ctx context.Context, raw string, opts Options) error {
 	if err != nil {
 		return err
 	}
-	for _, trusted := range opts.TrustedOrigins {
-		if SameOrigin(value, trusted) {
-			return nil
-		}
-	}
-	if len(opts.TrustedOrigins) > 0 {
-		if value.Scheme != "https" {
-			return errors.New("server-advertised OAuth URLs outside the configured server origin must use HTTPS")
-		}
-		return validateResolvedHost(ctx, value.Hostname(), opts, true, "server-advertised OAuth")
-	}
-
 	host := value.Hostname()
 	loopback := isLoopbackHost(host)
 	if opts.AllowPrivate {

@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
 	"go.mewis.me/chatgpt-mcp/internal/runtimecontrol"
 	"go.mewis.me/chatgpt-mcp/internal/runtimeevent"
+	"go.mewis.me/chatgpt-mcp/internal/testutil"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
@@ -57,6 +57,19 @@ func TestBuildLogsQueryUsesRuntimeQuerySemantics(t *testing.T) {
 	event := runtimeevent.Event{Time: now.Add(-time.Minute), RunID: "run_abcdef", Level: "error", Component: "TOOL", Name: "tool.call.failed", Tool: "run_command", Status: "error", Source: "tunnel", Message: "timeout"}
 	if !query.Match(event) {
 		t.Fatalf("query did not match %#v", event)
+	}
+}
+
+func TestBuildLogsQueryTunnelMatchesIdentity(t *testing.T) {
+	now := time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
+	query, err := BuildLogsQuery(LogsQueryOptions{Source: "tunnel", Tunnel: " Alpha "}, now)
+	if err != nil || query.Tunnel != "Alpha" || query.Source != "tunnel" {
+		t.Fatalf("query=%#v err=%v", query, err)
+	}
+	alpha := runtimeevent.Event{Time: now, Source: "tunnel", TunnelID: "tunnel_a", TunnelName: "Alpha"}
+	beta := runtimeevent.Event{Time: now, Source: "tunnel", TunnelID: "tunnel_b", TunnelName: "Beta"}
+	if !query.Match(alpha) || query.Match(beta) {
+		t.Fatalf("alpha=%v beta=%v", query.Match(alpha), query.Match(beta))
 	}
 }
 
@@ -163,12 +176,8 @@ func TestParseLogsSinceAcceptsAbsoluteTimestamp(t *testing.T) {
 
 func setupLogsRoot(t *testing.T) string {
 	t.Helper()
-	previous := configformat.RootPath()
-	t.Cleanup(func() { _ = configformat.SetRootPath(previous) })
 	root := t.TempDir()
-	if err := configformat.SetRootPath(root); err != nil {
-		t.Fatal(err)
-	}
+	testutil.UseConfigRoot(t, root)
 	return root
 }
 

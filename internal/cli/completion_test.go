@@ -7,8 +7,10 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/runtimeevent"
+	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 	"go.mewis.me/chatgpt-mcp/internal/upstream"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
@@ -29,6 +31,10 @@ func TestConfigCompletionIncludesKeysAndTypedValues(t *testing.T) {
 	selection, _ := completeConfigSelection(nil, nil, "tunnel")
 	if !hasCompletion(selection, "tunnel") || !hasCompletion(selection, "tunnel.enabled") || !hasCompletion(selection, "tunnel.organization_id") {
 		t.Fatalf("selection completions = %#v", selection)
+	}
+	setKeys, _ := completeConfigSet(nil, nil, "tunnel")
+	if hasCompletion(setKeys, "tunnel.enabled") || hasCompletion(setKeys, "tunnel.api_key") || hasCompletion(setKeys, "tunnel.id") {
+		t.Fatalf("set completions still include scalar tunnel fields: %#v", setKeys)
 	}
 }
 
@@ -77,6 +83,31 @@ func TestDynamicEntityAndSessionCompletionUsesSelectedConfigRoot(t *testing.T) {
 	sessions, _ := completeSessionID(cmd, nil, "run_completion")
 	if !hasCompletion(sessions, "run_completion_test") {
 		t.Fatalf("session completions = %#v", sessions)
+	}
+}
+
+func TestTunnelFilterCompletionIncludesIDAndCachedLabel(t *testing.T) {
+	defer configformat.SetRootPath("")
+	root := t.TempDir()
+	t.Setenv(configformat.EnvConfigDir, root)
+	if err := configformat.SetRootPath(root); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default()
+	instances := []tunnel.InstanceConfig{{ID: "tunnel_a", APIKey: "key-a"}, {ID: "tunnel_b", APIKey: "key-b"}}
+	cfg.Tunnel = tunnel.Config{Instances: &instances}
+	if err := config.Save(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := config.SaveTunnelMetadata(tunnel.Metadata{ID: "tunnel_a", Name: "Alpha"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := config.SaveTunnelMetadata(tunnel.Metadata{ID: "tunnel_b", Name: "Beta"}); err != nil {
+		t.Fatal(err)
+	}
+	values, directive := completeTunnelFilter(newRootCommand(), nil, "")
+	if directive != cobra.ShellCompDirectiveNoFileComp || !hasCompletion(values, "tunnel_a") || !hasCompletion(values, "Alpha") || !hasCompletion(values, "tunnel_b") || !hasCompletion(values, "Beta") {
+		t.Fatalf("completions=%#v directive=%v", values, directive)
 	}
 }
 

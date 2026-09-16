@@ -208,7 +208,7 @@ func TestWorkspaceRegistryV3MigratesContainersField(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(updated), `"version": 4`) {
+	if !strings.Contains(string(updated), `"version": 5`) {
 		t.Fatalf("registry not migrated: %s", updated)
 	}
 }

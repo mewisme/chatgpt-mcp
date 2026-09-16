@@ -1,0 +1,68 @@
+{
+  "schema": 2,
+  "id": "ponytail",
+  "name": "Ponytail",
+  "publisher": "mewisme",
+  "license": "Apache-2.0",
+  "version": "1.0.0",
+  "type": "tool-provider",
+  "scopes": ["global"],
+  "requires": {
+    "chatgpt-mcp": ">=0.2.25"
+  },
+  "provides": [
+    "tool-provider/ponytail"
+  ],
+  "permissions": [],
+  "config": {
+    "fields": [
+      {
+        "key": "default_active",
+        "type": "boolean",
+        "title": "Default active",
+        "description": "controls whether Ponytail guidance is active by default",
+        "default": true
+      },
+      {
+        "key": "default_mode",
+        "type": "enum",
+        "title": "Default mode",
+        "description": "sets the default Ponytail intensity",
+        "enum": ["lite", "full", "ultra"],
+        "default": "full"
+      }
+    ]
+  },
+  "platforms": {
+    "linux/amd64": {
+      "artifact": "ponytail-1.0.0-linux-amd64.zip",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "archive": "zip",
+      "entrypoint": "ponytail"
+    },
+    "linux/arm64": {
+      "artifact": "ponytail-1.0.0-linux-arm64.zip",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "archive": "zip",
+      "entrypoint": "ponytail"
+    },
+    "darwin/amd64": {
+      "artifact": "ponytail-1.0.0-darwin-amd64.zip",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "archive": "zip",
+      "entrypoint": "ponytail"
+    },
+    "darwin/arm64": {
+      "artifact": "ponytail-1.0.0-darwin-arm64.zip",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "archive": "zip",
+      "entrypoint": "ponytail"
+    },
+    "windows/amd64": {
+      "artifact": "ponytail-1.0.0-windows-amd64.zip",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "archive": "zip",
+      "entrypoint": "ponytail.exe"
+    }
+  }
+}

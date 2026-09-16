@@ -87,6 +87,10 @@ func (api API) handleWorkspace(w http.ResponseWriter, r *http.Request) {
 		api.handleWorkspaceRelocate(w, r, manager, value)
 		return
 	}
+	if len(parts) == 2 && parts[1] == "state" {
+		api.handleWorkspaceDeleteState(w, r, manager, value)
+		return
+	}
 	if len(parts) == 2 && parts[1] == "containers" {
 		api.handleWorkspaceContainersMembership(w, r, manager, value)
 		return
@@ -145,6 +149,22 @@ func (api API) handleWorkspaceRelocate(w http.ResponseWriter, r *http.Request, m
 		return
 	}
 	writeJSON(w, value)
+}
+
+func (api API) handleWorkspaceDeleteState(w http.ResponseWriter, r *http.Request, manager *workspace.Manager, item workspace.Workspace) {
+	if r.Method != http.MethodDelete {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	if _, err := manager.DeleteState(item.ID); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := api.syncWorkspaceRuntime(); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (api API) handleWorkspaceContext(w http.ResponseWriter, r *http.Request, manager *workspace.Manager, item workspace.Workspace) {

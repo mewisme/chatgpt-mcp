@@ -61,15 +61,11 @@ The dedicated generic-client HTTP transport is intentionally separate from the t
 
 ## Authentication
 
-`stdio` uses the local child-process boundary and does not require transport OAuth.
+`stdio` uses the local child-process boundary and does not require a bearer token.
 
-Protected `cgm mcp http` uses OAuth as the canonical client authentication flow. Static managed MCP bearer compatibility can be controlled with:
+Protected `cgm mcp http` uses the same Direct MCP HTTP token as managed `/mcp`. Disable authentication with `cgm auth mcp disable` when a local client should connect without a token. Reuse that token when adding this MCP server to ChatGPT; reveal it with `cgm auth mcp show` instead of rotating.
 
-```bash
-cgm config set auth.mcp_legacy_bearer false
-```
-
-The OpenAI Secure MCP Tunnel runtime API key is unrelated to generic MCP client authentication.
+The OpenAI Secure MCP Tunnel runtime API key is unrelated to Direct MCP HTTP authentication. Tunnel connections neither require nor accept that token.
 
 See [Configuration](configuration.md#authentication) and [Security](security.md).
 
@@ -129,17 +125,7 @@ Tool exposure can be narrowed with prefixes, allowlists, disabled-tool lists, or
 
 `cgm mcp server ...` is a deprecated compatibility path; new automation should use `cgm upstream server ...`.
 
-## Upstream OAuth
-
-HTTP upstreams can use managed OAuth:
-
-```bash
-cgm upstream server auth login <id>
-cgm upstream server auth status <id>
-cgm upstream server auth logout <id>
-```
-
-Managed access/refresh tokens and client secrets are stored through the selected config root's secret store rather than ordinary structured configuration.
+HTTP upstreams authenticate with configured headers and optional bearer-token environment variables. Leftover `auth: {type: oauth|auto|none}` fields in saved config are ignored.
 
 ## Outbound network policy
 

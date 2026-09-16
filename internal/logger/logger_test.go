@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -164,6 +165,58 @@ func TestJSONRendererIncludesReplaySessionMetadata(t *testing.T) {
 	}
 	if value["run_id"] != "run_test" || value["pid"] != float64(42) || value["managed"] != true || value["service_id"] != "service_test" || value["service_scope"] != "system" {
 		t.Fatalf("json metadata = %#v", value)
+	}
+}
+
+func TestLoggerSecretPreservesOneTimeReveal(t *testing.T) {
+	var output bytes.Buffer
+	log := NewWithOptions(Options{Level: Info, Format: FormatText, Writer: &output})
+	token := "mcp_abcdefghijklmnopqrstuvwxyz012345"
+	log.Detail("mcp", token)
+	log.Secret("mcp", token)
+	text := output.String()
+	if strings.Count(text, "<redacted>") != 1 {
+		t.Fatalf("detail should redact once: %q", text)
+	}
+	if !strings.Contains(text, token) {
+		t.Fatalf("secret reveal missing token: %q", text)
+	}
+}
+
+func TestLoggerRedactsSecretsBeforeRenderingAndSinks(t *testing.T) {
+	var output bytes.Buffer
+	log := NewWithOptions(Options{Level: Debug, Mode: ModeDebug, Format: FormatJSON, Writer: &output})
+	sink := &captureSink{}
+	log.AddSink(sink)
+	log.Emit(Event{
+		Level: Debug, Kind: KindError, Component: "PLUGIN",
+		Message: `plugin request failed api_key=message-secret`,
+		Err:     errors.New(`GET https://user:pass@example.test/plugin?token=query-secret: Authorization: Bearer bearer-secret`),
+		Fields: []Field{
+			With("api_key", "field-secret"),
+			With("payload", map[string]any{"client_secret": "nested-secret", "safe": "ok", "route_kind": "mcp_channel"}),
+		},
+	})
+	text := output.String()
+	for _, secret := range []string{"message-secret", "user:pass@", "query-secret", "bearer-secret", "field-secret", "nested-secret"} {
+		if strings.Contains(text, secret) {
+			t.Fatalf("logger output leaked %q: %q", secret, text)
+		}
+	}
+	if !strings.Contains(text, "redacted") || !strings.Contains(text, "mcp_channel") || !strings.Contains(text, "ok") {
+		t.Fatalf("logger output lost safe context: %q", text)
+	}
+	if len(sink.events) != 1 {
+		t.Fatalf("sink events = %#v", sink.events)
+	}
+	sinkText := fmt.Sprintf("%#v", sink.events[0])
+	for _, secret := range []string{"message-secret", "query-secret", "bearer-secret", "field-secret", "nested-secret"} {
+		if strings.Contains(sinkText, secret) {
+			t.Fatalf("logger sink leaked %q: %q", secret, sinkText)
+		}
+	}
+	if strings.Contains(sink.events[0].Name, "message-secret") {
+		t.Fatalf("legacy event name leaked secret: %q", sink.events[0].Name)
 	}
 }
 

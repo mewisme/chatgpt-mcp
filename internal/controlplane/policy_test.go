@@ -6,9 +6,10 @@ func TestReadOnlyCommandPolicy(t *testing.T) {
 	for _, args := range [][]string{
 		{"status"}, {"config", "list"}, {"auth", "status"},
 		{"workspace", "access", "list", "ws_test"}, {"mcp", "server", "show", "server"}, {"tunnel", "status"}, {"alias", "status"}, {"upgrade", "check"}, {"update", "check"},
+		{"plugin"}, {"plugin", "search", "bash"}, {"plugin", "info", "bash"}, {"plugin", "list"}, {"plugin", "outdated"}, {"plugin", "verify", "bash"}, {"plugin", "registry"}, {"plugin", "registry", "list"},
 		{"request", "list"}, {"request", "view", "req_test"}, {"req", "ls"}, {"req", "show", "req_test"}, {"req", "info", "req_test"},
 		{"st"}, {"cfg", "ls"}, {"ws", "access", "ls", "ws_test"}, {"mcp", "server", "st", "server"}, {"tunnel", "st"}, {"completion", "bash"},
-		{"--config-dir", "/tmp/config", "config", "get", "server.expose"}, {"--verbose", "status"}, {"--help"},
+		{"--config-dir", "/tmp/config", "config", "get", "server.expose"}, {"--verbose", "status"}, {"--help"}, {},
 	} {
 		if !IsReadOnlyArgs(args) {
 			t.Fatalf("read-only command denied: %#v -> %q", args, PathFromArgs(args))
@@ -17,9 +18,10 @@ func TestReadOnlyCommandPolicy(t *testing.T) {
 	for _, args := range [][]string{
 		{"config", "set", "permissions.allow_dirs", "/tmp"}, {"config", "convert", "yaml"}, {"config", "export", "backup.cgm"}, {"config", "import", "backup.cgm"},
 		{"cfg", "set", "permissions.allow_dirs", "/tmp"}, {"ws", "register", "."},
-		{"auth", "mcp", "create"}, {"workspace", "register", "."}, {"workspace", "access", "add", "ws_test", "/tmp"},
+		{"auth", "mcp", "create"}, {"workspace", "register", "."}, {"workspace", "purge", ".", "--confirm"}, {"workspace", "access", "add", "ws_test", "/tmp"},
+		{"plugin", "install", "bash"}, {"plugin", "uninstall", "bash"}, {"plugin", "enable", "bash"}, {"plugin", "disable", "bash"}, {"plugin", "update", "bash"}, {"plugin", "update", "--all"}, {"plugin", "rollback", "bash"}, {"plugin", "prune", "bash"}, {"plugin", "prune", "--cache"}, {"plugin", "registry", "add", "community", "https://plugins.example.test"}, {"plugin", "registry", "remove", "community"},
 		{"request", "approve", "req_test"}, {"request", "deny", "req_test"}, {"request", "grant", "revoke", "req_test"}, {"req", "accept", "req_test"}, {"req", "allow", "req_test"}, {"req", "reject", "req_test"},
-		{"mcp", "server", "add", "server"}, {"tunnel", "enable"}, {"alias", "install"}, {"alias", "remove"}, {"upgrade"}, {"update"}, {"serve"}, {},
+		{"mcp", "server", "add", "server"}, {"tunnel", "enable"}, {"alias", "install"}, {"alias", "remove"}, {"upgrade"}, {"update"}, {"serve"},
 	} {
 		if IsReadOnlyArgs(args) {
 			t.Fatalf("mutating command allowed: %#v -> %q", args, PathFromArgs(args))
@@ -29,14 +31,14 @@ func TestReadOnlyCommandPolicy(t *testing.T) {
 
 func TestApprovalEligibleCommandPolicy(t *testing.T) {
 	for _, args := range [][]string{
-		{"upgrade"}, {"update"}, {"install"}, {"config", "set", "server.port", "41001"}, {"workspace", "access", "add", "ws_test", "/tmp"},
+		{"upgrade"}, {"update"}, {"install"}, {"config", "set", "server.port", "41001"}, {"workspace", "access", "add", "ws_test", "/tmp"}, {"plugin", "install", "bash"}, {"plugin", "uninstall", "bash"}, {"plugin", "update", "bash"}, {"plugin", "rollback", "bash"}, {"plugin", "prune", "bash"}, {"plugin", "prune", "--cache"}, {"plugin", "registry", "add", "community", "https://plugins.example.test"},
 	} {
 		if !ApprovalEligibleArgs(args) {
 			t.Fatalf("approval-eligible command denied: %#v -> %q", args, PathFromArgs(args))
 		}
 	}
 	for _, args := range [][]string{
-		{"status"}, {"upgrade", "check"}, {"update", "check"}, {"request", "approve", "req_test"}, {"request", "deny", "req_test"}, {"req", "accept", "req_test"}, {"req", "reject", "req_test"}, {"request", "list"}, {"request", "view", "req_test"}, {"_service", "run"}, {},
+		{"status"}, {"upgrade", "check"}, {"update", "check"}, {"plugin", "search", "bash"}, {"plugin", "list"}, {"plugin", "verify", "bash"}, {"plugin", "registry", "list"}, {"request", "approve", "req_test"}, {"request", "deny", "req_test"}, {"req", "accept", "req_test"}, {"req", "reject", "req_test"}, {"request", "list"}, {"request", "view", "req_test"}, {"_service", "run"}, {},
 	} {
 		if ApprovalEligibleArgs(args) {
 			t.Fatalf("hard-denied/read-only command became approval eligible: %#v -> %q", args, PathFromArgs(args))

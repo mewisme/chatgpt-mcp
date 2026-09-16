@@ -4,13 +4,13 @@
 
 ### Workspace path
 
-Required directory path that becomes the registered workspace root. The field is directory-picker aware and validates that a directory value is supplied. Registration stores the workspace identity/access metadata; it does not modify project files.
+Required directory path that becomes the registered workspace root. The field is directory-picker aware and validates that a directory value is supplied. Registration creates or reuses `<workspace>/.cgm` identity; it does not modify project files.
 
 ## Relocate Workspace
 
 ### New workspace path
 
-Required directory path for the same project after its directory has already been renamed or moved. `Enter` on this final field performs the relocate action. It updates the registered root, derives the new canonical workspace ID, keeps the previous ID as a legacy alias, and migrates workspace-scoped state. It never moves or renames project files itself.
+Required directory path for the same project after its directory has already been renamed or moved. `Enter` on this final field performs the relocate action. It updates the registered root, keeps the existing workspace ID, and leaves `.cgm` state with the project. It never moves or renames project files itself.
 
 ## Add Access Directory
 

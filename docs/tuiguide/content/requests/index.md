@@ -8,7 +8,9 @@ The page provides `Pending / History / All` views. Pending contains unresolved, 
 
 ## Request detail
 
-Open a request to see its title, workspace, tool, source, guard information, timestamps, status, and countdown. Child pages expose long Arguments and Guard content without cramming everything into the overview.
+Open a request to see its title, workspace, tool, source, tunnel, guard information, timestamps, status, and countdown. Child pages expose long Arguments and Guard content without cramming everything into the overview.
+
+`Source` is the transport. Tunnel-originated requests show the cached tunnel label in the list; the canonical ID remains in search/detail. Duplicate labels get a short-ID suffix.
 
 Detail content uses a viewport. Periodic countdown refreshes preserve the viewport offset, so scrolling down does not jump back to the top every second.
 

@@ -20,8 +20,6 @@ func TestMCPServerFormCreatesNormalizedHTTPServer(t *testing.T) {
 	data.URL = " https://example.test/mcp "
 	data.Headers = "X-Mode=read"
 	data.SensitiveHeaders = `{"Authorization":"Bearer secret"}`
-	data.AuthType = "oauth"
-	data.AuthScope = "read write"
 	data.Expose = "allowlist"
 	data.Tools = "read\nsearch"
 	data.DisabledTools = "delete"
@@ -95,7 +93,6 @@ func TestMCPServerFormPreservesInactiveTransportDraftValues(t *testing.T) {
 	data.URL = "https://inactive.example/mcp"
 	data.Headers = "X-Inactive=kept"
 	data.BearerTokenEnvVar = "MCP_TOKEN"
-	data.AuthType = "none"
 	server, err := serverFromMCPForm(&data, upstream.Server{}, true)
 	if err != nil {
 		t.Fatal(err)
@@ -104,7 +101,6 @@ func TestMCPServerFormPreservesInactiveTransportDraftValues(t *testing.T) {
 		t.Fatalf("inactive HTTP draft was lost: %#v", server)
 	}
 	data.Transport = "http"
-	data.AuthType = "auto"
 	server, err = serverFromMCPForm(&data, upstream.Server{}, true)
 	if err != nil {
 		t.Fatal(err)
@@ -128,4 +124,12 @@ func TestMCPServerEditorStdioWorkingDirectoryUsesPathPickerFallback(t *testing.T
 		}
 	}
 	testutil.AssertLinesFit(t, field.View(), 48)
+}
+
+func TestMCPServerEditorRejectsSpacedID(t *testing.T) {
+	editor, _ := newMCPServerEditor(upstream.Server{ID: "my server", Transport: "http", URL: "https://example.test", IdleTimeoutSec: 600}, true)
+	_ = editor.Init()
+	if err := editor.Validate(); err == nil || !strings.Contains(err.Error(), "letters, numbers") {
+		t.Fatalf("err=%v", err)
+	}
 }

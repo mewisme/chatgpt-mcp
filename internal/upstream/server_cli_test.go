@@ -15,6 +15,18 @@ func TestNormalizeServerPreservesExposeWhenDisabled(t *testing.T) {
 	}
 }
 
+func TestValidateServerID(t *testing.T) {
+	if err := ValidateServerID("demo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateServerID("my server"); err == nil {
+		t.Fatal("expected spaced id to fail")
+	}
+	if _, err := NormalizeServer(Server{ID: "legacy name", Transport: "http", URL: "https://example.test"}); err != nil {
+		t.Fatalf("load compatibility: %v", err)
+	}
+}
+
 func TestParseAssignmentsAndRedactServer(t *testing.T) {
 	values, err := ParseAssignments([]string{" A =one", "B=two=three"}, "env")
 	if err != nil {

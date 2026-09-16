@@ -20,7 +20,9 @@ Leaving Logs for another top-level page closes the live feeds. Returning rebuild
 
 Runtime shows persistent runtime journal history and continues with live runtime events. Tool-call lifecycle records are kept in the dedicated Tool Calls tab rather than duplicated into Runtime.
 
-Use the filter editor for time range, visibility, component, session, workspace, tool, status, source, event glob, and text matching.
+Use the filter editor for time range, visibility, component, session, workspace, tool, status, source, tunnel, event glob, and text matching.
+
+`Source` is transport type (`tunnel`, `http`, stdin). It is not which tunnel. `Tunnel` matches one instance by cached name or canonical ID. Dense rows show the cached label; search still matches the ID.
 
 ## Command Execution
 

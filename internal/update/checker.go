@@ -3,6 +3,8 @@ package update
 import (
 	"context"
 	"strings"
+
+	"go.mewis.me/chatgpt-mcp/internal/version"
 )
 
 type Status string
@@ -43,7 +45,7 @@ func (c Checker) Check(ctx context.Context, current string) (CheckResult, error)
 
 func checkRelease(current string, release Release) (CheckResult, error) {
 	current = strings.TrimSpace(current)
-	if isDevelopmentVersion(current) {
+	if version.IsDevelopment(current) {
 		return CheckResult{Current: current, Latest: release.Version, Status: StatusDevelopment, Release: release}, nil
 	}
 	normalizedCurrent, err := NormalizeVersion(current)
@@ -61,9 +63,4 @@ func checkRelease(current string, release Release) (CheckResult, error) {
 		status = StatusAhead
 	}
 	return CheckResult{Current: normalizedCurrent, Latest: release.Version, Status: status, Release: release}, nil
-}
-
-func isDevelopmentVersion(version string) bool {
-	version = strings.ToLower(strings.TrimSpace(version))
-	return version == "" || version == "dev" || version == "(devel)" || strings.HasPrefix(version, "dev-")
 }

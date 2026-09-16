@@ -22,6 +22,8 @@ type Event struct {
 	WorkspaceID string    `json:"workspace_id"`
 	SessionHash string    `json:"session_hash,omitempty"`
 	Source      string    `json:"source,omitempty"`
+	TunnelID    string    `json:"tunnel_id,omitempty"`
+	TunnelName  string    `json:"tunnel_name,omitempty"`
 	TargetTool  string    `json:"target_tool"`
 	Title       string    `json:"title"`
 	Status      Status    `json:"status"`

@@ -84,7 +84,7 @@ func TestValidateConfigRequiresHTTPSControlPlane(t *testing.T) {
 
 func TestDisabledTunnelDoesNotConstructBackend(t *testing.T) {
 	called := false
-	client := newConfigured(Config{Enabled: false}, &tools.Runtime{Registry: tools.NewRegistry()}, func(Config, sdkmcp.Transport) (backend, error) {
+	client := newConfigured(Config{Enabled: false}, &tools.Runtime{Registry: tools.NewRegistry()}, func(Config, sdkmcp.Transport) (Backend, error) {
 		called = true
 		return newFakeBackend(), nil
 	})
@@ -103,7 +103,7 @@ func TestBuiltinOpenAITunnelLifecycle(t *testing.T) {
 	client := newConfigured(Config{
 		Enabled: true, ID: "tunnel_0123456789abcdef0123456789abcdef", APIKey: "secret",
 		ControlPlaneBaseURL: "https://api.openai.com", OrganizationID: "org_test",
-	}, runtime, func(cfg Config, transport sdkmcp.Transport) (backend, error) {
+	}, runtime, func(cfg Config, transport sdkmcp.Transport) (Backend, error) {
 		if transport == nil {
 			t.Fatal("expected in-memory MCP transport")
 		}
@@ -142,7 +142,7 @@ func TestBuiltinOpenAITunnelLifecycle(t *testing.T) {
 func TestTunnelLifecycleObserverReportsConnectingReadyAndStopped(t *testing.T) {
 	runtime := &tools.Runtime{Registry: tools.NewRegistry()}
 	fake := newFakeBackend()
-	client := newConfigured(Config{Enabled: true, ID: "tunnel_test", APIKey: "secret"}, runtime, func(Config, sdkmcp.Transport) (backend, error) { return fake, nil })
+	client := newConfigured(Config{Enabled: true, ID: "tunnel_test", APIKey: "secret"}, runtime, func(Config, sdkmcp.Transport) (Backend, error) { return fake, nil })
 	events := make(chan LifecycleEvent, 8)
 	client.SetLifecycleObserver(func(event LifecycleEvent) { events <- event })
 	if err := client.Start(); err != nil {
@@ -164,7 +164,7 @@ func TestTunnelLifecycleObserverReportsConnectingReadyAndStopped(t *testing.T) {
 func TestTunnelBackendShutdownReconnects(t *testing.T) {
 	runtime := &tools.Runtime{Registry: tools.NewRegistry()}
 	created := make(chan *fakeBackend, 4)
-	client := newConfigured(Config{Enabled: true, ID: "tunnel_test", APIKey: "secret"}, runtime, func(Config, sdkmcp.Transport) (backend, error) {
+	client := newConfigured(Config{Enabled: true, ID: "tunnel_test", APIKey: "secret"}, runtime, func(Config, sdkmcp.Transport) (Backend, error) {
 		fake := newFakeBackend()
 		created <- fake
 		return fake, nil
@@ -227,7 +227,7 @@ func TestTunnelBackendShutdownReconnects(t *testing.T) {
 func TestTunnelStopDuringReconnectPreventsRestart(t *testing.T) {
 	runtime := &tools.Runtime{Registry: tools.NewRegistry()}
 	created := make(chan *fakeBackend, 4)
-	client := newConfigured(Config{Enabled: true, ID: "tunnel_test", APIKey: "secret"}, runtime, func(Config, sdkmcp.Transport) (backend, error) {
+	client := newConfigured(Config{Enabled: true, ID: "tunnel_test", APIKey: "secret"}, runtime, func(Config, sdkmcp.Transport) (Backend, error) {
 		fake := newFakeBackend()
 		created <- fake
 		return fake, nil
@@ -268,7 +268,7 @@ func TestWaitUntilReadySurvivesReconnectBeforeInitialReady(t *testing.T) {
 	runtime := &tools.Runtime{Registry: tools.NewRegistry()}
 	created := make(chan *fakeBackend, 4)
 	count := 0
-	client := newConfigured(Config{Enabled: true, ID: "tunnel_test", APIKey: "secret"}, runtime, func(Config, sdkmcp.Transport) (backend, error) {
+	client := newConfigured(Config{Enabled: true, ID: "tunnel_test", APIKey: "secret"}, runtime, func(Config, sdkmcp.Transport) (Backend, error) {
 		count++
 		fake := newFakeBackend()
 		if count == 1 {
@@ -314,7 +314,7 @@ func TestDefaultRestartDelayIsBoundedExponential(t *testing.T) {
 func TestTunnelIdleReconnectRepeats(t *testing.T) {
 	runtime := &tools.Runtime{Registry: tools.NewRegistry()}
 	created := make(chan *fakeBackend, 8)
-	client := newConfigured(Config{Enabled: true, ID: "tunnel_test", APIKey: "secret"}, runtime, func(Config, sdkmcp.Transport) (backend, error) {
+	client := newConfigured(Config{Enabled: true, ID: "tunnel_test", APIKey: "secret"}, runtime, func(Config, sdkmcp.Transport) (Backend, error) {
 		fake := newFakeBackend()
 		created <- fake
 		return fake, nil
@@ -346,7 +346,7 @@ func TestTunnelIdleReconnectRepeats(t *testing.T) {
 func TestTunnelMCPActivityResetsIdleDeadline(t *testing.T) {
 	runtime := &tools.Runtime{Registry: tools.NewRegistry()}
 	created := make(chan *fakeBackend, 4)
-	client := newConfigured(Config{Enabled: true, ID: "tunnel_test", APIKey: "secret"}, runtime, func(Config, sdkmcp.Transport) (backend, error) {
+	client := newConfigured(Config{Enabled: true, ID: "tunnel_test", APIKey: "secret"}, runtime, func(Config, sdkmcp.Transport) (Backend, error) {
 		fake := newFakeBackend()
 		created <- fake
 		return fake, nil
@@ -412,7 +412,7 @@ func waitLifecycleState(t *testing.T, events <-chan LifecycleEvent, state Lifecy
 func TestTunnelContextCancellationStopsEmbeddedBackend(t *testing.T) {
 	runtime := &tools.Runtime{Registry: tools.NewRegistry()}
 	fake := newFakeBackend()
-	client := newConfigured(Config{Enabled: true, ID: "tunnel_test", APIKey: "secret"}, runtime, func(Config, sdkmcp.Transport) (backend, error) { return fake, nil })
+	client := newConfigured(Config{Enabled: true, ID: "tunnel_test", APIKey: "secret"}, runtime, func(Config, sdkmcp.Transport) (Backend, error) { return fake, nil })
 	ctx, cancel := context.WithCancel(context.Background())
 	if err := client.StartContext(ctx); err != nil {
 		t.Fatal(err)
@@ -445,7 +445,7 @@ func TestEnabledTunnelRequiresRuntimeIDAndAPIKey(t *testing.T) {
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
-			client := newConfigured(test.cfg, test.runtime, func(Config, sdkmcp.Transport) (backend, error) { return newFakeBackend(), nil })
+			client := newConfigured(test.cfg, test.runtime, func(Config, sdkmcp.Transport) (Backend, error) { return newFakeBackend(), nil })
 			if err := client.Start(); err == nil {
 				t.Fatal("expected validation error")
 			}
@@ -455,7 +455,7 @@ func TestEnabledTunnelRequiresRuntimeIDAndAPIKey(t *testing.T) {
 
 func TestConfigureRejectsRunningTunnel(t *testing.T) {
 	runtime := &tools.Runtime{Registry: tools.NewRegistry()}
-	client := newConfigured(Config{Enabled: true, ID: "tunnel_test", APIKey: "secret"}, runtime, func(Config, sdkmcp.Transport) (backend, error) { return newFakeBackend(), nil })
+	client := newConfigured(Config{Enabled: true, ID: "tunnel_test", APIKey: "secret"}, runtime, func(Config, sdkmcp.Transport) (Backend, error) { return newFakeBackend(), nil })
 	if err := client.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -470,7 +470,7 @@ func TestReconfigureRollsBackRunningTunnelWhenPersistenceFails(t *testing.T) {
 	oldConfig := Config{Enabled: true, ID: "tunnel_old", APIKey: "old-secret"}
 	newConfig := Config{Enabled: true, ID: "tunnel_new", APIKey: "new-secret"}
 	created := map[string][]*fakeBackend{}
-	client := newConfigured(oldConfig, runtime, func(cfg Config, _ sdkmcp.Transport) (backend, error) {
+	client := newConfigured(oldConfig, runtime, func(cfg Config, _ sdkmcp.Transport) (Backend, error) {
 		fake := newFakeBackend()
 		created[cfg.ID] = append(created[cfg.ID], fake)
 		return fake, nil
@@ -504,7 +504,7 @@ func TestReconfigureRollsBackWhenCandidateStartFails(t *testing.T) {
 	oldConfig := Config{Enabled: true, ID: "tunnel_old", APIKey: "old-secret"}
 	newConfig := Config{Enabled: true, ID: "tunnel_new", APIKey: "new-secret"}
 	oldStarts := 0
-	client := newConfigured(oldConfig, runtime, func(cfg Config, _ sdkmcp.Transport) (backend, error) {
+	client := newConfigured(oldConfig, runtime, func(cfg Config, _ sdkmcp.Transport) (Backend, error) {
 		fake := newFakeBackend()
 		if cfg.ID == newConfig.ID {
 			fake.startErr = errors.New("candidate start failed")
@@ -533,7 +533,7 @@ func TestReconfigureRejectsInvalidCandidateBeforeStoppingCurrentTunnel(t *testin
 	runtime := &tools.Runtime{Registry: tools.NewRegistry()}
 	oldConfig := Config{Enabled: true, ID: "tunnel_old", APIKey: "old-secret"}
 	fake := newFakeBackend()
-	client := newConfigured(oldConfig, runtime, func(Config, sdkmcp.Transport) (backend, error) { return fake, nil })
+	client := newConfigured(oldConfig, runtime, func(Config, sdkmcp.Transport) (Backend, error) { return fake, nil })
 	if err := client.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -556,7 +556,7 @@ func TestSyncManagementConfigDoesNotRestartRunningTunnel(t *testing.T) {
 	runtime := &tools.Runtime{Registry: tools.NewRegistry()}
 	fake := newFakeBackend()
 	cfg := Config{Enabled: true, ID: "tunnel_test", APIKey: "runtime-key"}
-	client := newConfigured(cfg, runtime, func(Config, sdkmcp.Transport) (backend, error) { return fake, nil })
+	client := newConfigured(cfg, runtime, func(Config, sdkmcp.Transport) (Backend, error) { return fake, nil })
 	if err := client.Start(); err != nil {
 		t.Fatal(err)
 	}

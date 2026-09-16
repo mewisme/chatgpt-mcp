@@ -3,10 +3,21 @@ package testutil
 import (
 	"os"
 	"path/filepath"
+	"testing"
 
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/secretstore"
 )
+
+// UseConfigRoot sets the process config root for one test and clears the override on cleanup.
+// Prefer this over restoring a previous RootPath(), which can pin the live default root.
+func UseConfigRoot(t *testing.T, root string) {
+	t.Helper()
+	t.Cleanup(func() { _ = configformat.SetRootPath("") })
+	if err := configformat.SetRootPath(root); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func IsolateConfigHome() (string, func(), error) {
 	home, err := os.MkdirTemp("", "chatgpt-mcp-test-home-")
@@ -14,7 +25,7 @@ func IsolateConfigHome() (string, func(), error) {
 		return "", nil, err
 	}
 	previous := map[string]*string{}
-	for _, key := range []string{"HOME", "USERPROFILE", configformat.EnvConfigDir} {
+	for _, key := range []string{"HOME", "USERPROFILE", configformat.EnvConfigDir, configformat.EnvTesting} {
 		if value, ok := os.LookupEnv(key); ok {
 			copy := value
 			previous[key] = &copy
@@ -32,6 +43,10 @@ func IsolateConfigHome() (string, func(), error) {
 	}
 	configRoot := filepath.Join(home, "config")
 	if err := os.Setenv(configformat.EnvConfigDir, configRoot); err != nil {
+		_ = os.RemoveAll(home)
+		return "", nil, err
+	}
+	if err := os.Setenv(configformat.EnvTesting, "1"); err != nil {
 		_ = os.RemoveAll(home)
 		return "", nil, err
 	}

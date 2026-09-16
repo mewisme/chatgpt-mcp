@@ -2,17 +2,22 @@ package tools
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"unicode/utf8"
 
 	"go.mewis.me/chatgpt-mcp/internal/checkpoint"
+	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/instructioncontext"
 	"go.mewis.me/chatgpt-mcp/internal/instructionpolicy"
 	"go.mewis.me/chatgpt-mcp/internal/memory"
+	"go.mewis.me/chatgpt-mcp/internal/nativeinstruction"
 	"go.mewis.me/chatgpt-mcp/internal/projectcontext"
 	"go.mewis.me/chatgpt-mcp/internal/rules"
 	"go.mewis.me/chatgpt-mcp/internal/skills"
@@ -30,6 +35,14 @@ type PathRulesResult struct {
 	Rules []rules.Rule `json:"rules"`
 	Count int          `json:"count"`
 }
+
+const createSkillInputSchema = `{"type":"object","properties":{"workspace_id":{"type":"string"},"scope":{"type":"string","enum":["global","workspace"]},"mode":{"type":"string","enum":["create","update"],"default":"create"},"name":{"type":"string","minLength":1,"maxLength":64,"pattern":"^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"},"description":{"type":"string","minLength":1,"maxLength":512},"instructions":{"type":"string","minLength":1,"maxLength":100000},"files":{"type":"array","maxItems":128,"default":[],"items":{"type":"object","properties":{"path":{"type":"string","minLength":1,"maxLength":1024},"content":{"type":"string"},"encoding":{"type":"string","enum":["utf8","base64"],"default":"utf8"},"executable":{"type":"boolean","default":false}},"required":["path","content"],"additionalProperties":false}},"remove_files":{"type":"array","maxItems":128,"default":[],"items":{"type":"string","minLength":1,"maxLength":1024}},"dry_run":{"type":"boolean","default":false}},"required":["workspace_id","scope","name","description","instructions"],"additionalProperties":false}`
+
+const createSkillOutputSchema = `{"type":"object","properties":{"scope":{"type":"string","enum":["global","workspace"]},"mode":{"type":"string","enum":["create","update"]},"name":{"type":"string"},"path":{"type":"string"},"directory":{"type":"string"},"files_written":{"type":"array","items":{"type":"string"}},"files_removed":{"type":"array","items":{"type":"string"}},"sha256":{"type":"string"},"dry_run":{"type":"boolean"}},"required":["scope","mode","name","path","directory","files_written","files_removed","sha256","dry_run"],"additionalProperties":false}`
+
+const createRuleInputSchema = `{"type":"object","properties":{"workspace_id":{"type":"string"},"scope":{"type":"string","enum":["global","workspace"]},"mode":{"type":"string","enum":["create","update"],"default":"create"},"name":{"type":"string","minLength":1,"maxLength":64,"pattern":"^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"},"description":{"type":"string","minLength":1,"maxLength":2000},"always_apply":{"type":"boolean"},"globs":{"type":"array","maxItems":128,"default":[],"items":{"type":"string","minLength":1,"maxLength":1024}},"content":{"type":"string","minLength":1,"maxLength":500000},"dry_run":{"type":"boolean","default":false}},"required":["workspace_id","scope","name","description","always_apply","content"],"additionalProperties":false}`
+
+const createRuleOutputSchema = `{"type":"object","properties":{"scope":{"type":"string","enum":["global","workspace"]},"mode":{"type":"string","enum":["create","update"]},"name":{"type":"string"},"path":{"type":"string"},"sha256":{"type":"string"},"dry_run":{"type":"boolean"}},"required":["scope","mode","name","path","sha256","dry_run"],"additionalProperties":false}`
 
 type RememberResult struct {
 	SavedTo string `json:"saved_to"`
@@ -95,7 +108,7 @@ type AgentStatusResult struct {
 type ProjectContextEnvironment func() (bool, int)
 
 func RegisterContextTools(registry *Registry, workspaces *workspace.Manager, checkpoints *checkpoint.Store, environments ...ProjectContextEnvironment) {
-	memoryStore := memory.NewStore(memory.DefaultRoot())
+	memoryStore := memory.NewWorkspaceStore(memory.DefaultRoot(), workspaces)
 	memoryIndex := memory.NewHybridIndex(memory.NewLocalEmbedder(), memory.DefaultHybridWeights())
 	memoryLifecycle := memory.NewIndexLifecycle(memoryStore, memoryIndex)
 	policyStore := instructionpolicy.DefaultStore()
@@ -114,7 +127,7 @@ func RegisterContextTools(registry *Registry, workspaces *workspace.Manager, che
 		}, handler)
 	}
 
-	register("list_skills", "List Skills", "List project skills and activation descriptions across supported agent providers.", workspaceOnlySchema(``), `{"type":"object","properties":{"skills":{"type":"array","items":{"type":"object","additionalProperties":true}},"count":{"type":"integer"}},"required":["skills","count"],"additionalProperties":false}`, RiskRead, func(_ context.Context, args map[string]any) (Result, error) {
+	register("list_skills", "List Skills", "List project, native CGM, built-in, and provider skills with activation descriptions.", workspaceOnlySchema(``), `{"type":"object","properties":{"skills":{"type":"array","items":{"type":"object","additionalProperties":true}},"count":{"type":"integer"}},"required":["skills","count"],"additionalProperties":false}`, RiskRead, func(_ context.Context, args map[string]any) (Result, error) {
 		item, err := workspaceFromArgs(workspaces, args)
 		if err != nil {
 			return Result{}, err
@@ -153,8 +166,8 @@ func RegisterContextTools(registry *Registry, workspaces *workspace.Manager, che
 		if err != nil {
 			return Result{}, err
 		}
-		if _, err := workspaces.ResolvePath(item.ID, item.Path, value.Skill.Path, true); err != nil && !withinDirectory(home, value.Skill.Path) {
-			return Result{}, fmt.Errorf("skill path: %w", err)
+		if !skills.Builtin(value.Skill) && !instructionPathAllowed(workspaces, item.ID, item.Path, home, value.Skill.Path) {
+			return Result{}, fmt.Errorf("skill path is outside trusted instruction roots")
 		}
 		return JSONResult(value), nil
 	})
@@ -381,7 +394,7 @@ func RegisterContextTools(registry *Registry, workspaces *workspace.Manager, che
 		return JSONResult(OptimizeMemoryResult{Groups: analysis.Groups, BeforeBytes: analysis.BeforeBytes, CandidateSavingsBytes: analysis.CandidateSavingsBytes, LegacyFormat: analysis.LegacyFormat, OptimizationRecommended: analysis.OptimizationRecommended, DryRun: true}), nil
 	})
 
-	register("load_path_rules", "Load Path Rules", "Load path-scoped rules from .claude/.claudes/.agents/.cursor/.codex rule directories.", `{"type":"object","properties":{"workspace_id":{"type":"string"},"path":{"type":"string"}},"required":["workspace_id","path"],"additionalProperties":false}`, `{"type":"object","properties":{"path":{"type":"string"},"rules":{"type":"array","items":{"type":"object","additionalProperties":true}},"count":{"type":"integer"}},"required":["path","rules","count"],"additionalProperties":false}`, RiskRead, func(_ context.Context, args map[string]any) (Result, error) {
+	register("load_path_rules", "Load Path Rules", "Load path-scoped rules from native CGM and .claude/.claudes/.agents/.cursor/.codex rule directories.", `{"type":"object","properties":{"workspace_id":{"type":"string"},"path":{"type":"string"}},"required":["workspace_id","path"],"additionalProperties":false}`, `{"type":"object","properties":{"path":{"type":"string"},"rules":{"type":"array","items":{"type":"object","additionalProperties":true}},"count":{"type":"integer"}},"required":["path","rules","count"],"additionalProperties":false}`, RiskRead, func(_ context.Context, args map[string]any) (Result, error) {
 		item, cwd, err := workspaceLocation(workspaces, args)
 		if err != nil {
 			return Result{}, err
@@ -404,12 +417,119 @@ func RegisterContextTools(registry *Registry, workspaces *workspace.Manager, che
 			return Result{}, err
 		}
 		for _, rule := range values {
-			if _, err := workspaces.ResolvePath(item.ID, item.Path, rule.Path, true); err != nil && !withinDirectory(home, rule.Path) {
-				return Result{}, fmt.Errorf("rule path: %w", err)
+			if !instructionPathAllowed(workspaces, item.ID, item.Path, home, rule.Path) {
+				return Result{}, fmt.Errorf("rule path is outside trusted instruction roots")
 			}
 		}
 		return JSONResult(PathRulesResult{Path: target, Rules: values, Count: len(values)}), nil
 	})
+
+	register("create_skill", "Create Skill", "Create or update a native CGM skill from semantic fields. Renders SKILL.md itself. Pass scope; do not supply a destination path.", createSkillInputSchema, createSkillOutputSchema, RiskEdit, func(_ context.Context, args map[string]any) (Result, error) {
+		if err := rejectUnknownArgs(args, "workspace_id", "scope", "mode", "name", "description", "instructions", "files", "remove_files", "dry_run"); err != nil {
+			return Result{}, err
+		}
+		item, err := workspaceFromArgs(workspaces, args)
+		if err != nil {
+			return Result{}, err
+		}
+		scope, err := requiredString(args, "scope")
+		if err != nil {
+			return Result{}, err
+		}
+		mode, err := optionalStringDefault(args, "mode", nativeinstruction.ModeCreate)
+		if err != nil {
+			return Result{}, err
+		}
+		name, err := requiredString(args, "name")
+		if err != nil {
+			return Result{}, err
+		}
+		description, err := requiredString(args, "description")
+		if err != nil {
+			return Result{}, err
+		}
+		instructions, err := requiredString(args, "instructions")
+		if err != nil {
+			return Result{}, err
+		}
+		files, err := skillFilesFromArgs(args)
+		if err != nil {
+			return Result{}, err
+		}
+		remove, err := optionalStrings(args, "remove_files")
+		if err != nil {
+			return Result{}, err
+		}
+		dryRun, err := optionalBool(args, "dry_run", false)
+		if err != nil {
+			return Result{}, err
+		}
+		value, err := nativeinstruction.WriteSkill(nativeinstruction.SkillRequest{
+			Scope: scope, Mode: mode, Name: name, Description: description, Instructions: instructions,
+			WorkspaceRoot: item.Path, Files: files, Remove: remove, DryRun: dryRun,
+		})
+		if err != nil {
+			return Result{}, err
+		}
+		return JSONResult(value), nil
+	})
+
+	register("create_rule", "Create Rule", "Create or update a native CGM rule from semantic fields. Renders Markdown frontmatter itself. Pass scope; do not supply a destination path.", createRuleInputSchema, createRuleOutputSchema, RiskEdit, func(_ context.Context, args map[string]any) (Result, error) {
+		if err := rejectUnknownArgs(args, "workspace_id", "scope", "mode", "name", "description", "always_apply", "globs", "content", "dry_run"); err != nil {
+			return Result{}, err
+		}
+		item, err := workspaceFromArgs(workspaces, args)
+		if err != nil {
+			return Result{}, err
+		}
+		scope, err := requiredString(args, "scope")
+		if err != nil {
+			return Result{}, err
+		}
+		mode, err := optionalStringDefault(args, "mode", nativeinstruction.ModeCreate)
+		if err != nil {
+			return Result{}, err
+		}
+		name, err := requiredString(args, "name")
+		if err != nil {
+			return Result{}, err
+		}
+		description, err := requiredString(args, "description")
+		if err != nil {
+			return Result{}, err
+		}
+		alwaysApply, err := requiredBool(args, "always_apply")
+		if err != nil {
+			return Result{}, err
+		}
+		globs, err := optionalStrings(args, "globs")
+		if err != nil {
+			return Result{}, err
+		}
+		content, err := requiredString(args, "content")
+		if err != nil {
+			return Result{}, err
+		}
+		dryRun, err := optionalBool(args, "dry_run", false)
+		if err != nil {
+			return Result{}, err
+		}
+		value, err := nativeinstruction.WriteRule(nativeinstruction.RuleRequest{
+			Scope: scope, Mode: mode, Name: name, Description: description, AlwaysApply: alwaysApply, Globs: globs, Content: content,
+			WorkspaceRoot: item.Path, DryRun: dryRun,
+		})
+		if err != nil {
+			return Result{}, err
+		}
+		return JSONResult(value), nil
+	})
+}
+
+func instructionPathAllowed(workspaces *workspace.Manager, workspaceID, workspaceRoot, home, path string) bool {
+	if _, err := workspaces.ResolvePath(workspaceID, workspaceRoot, path, true); err == nil {
+		return true
+	}
+	return withinDirectory(home, path) || withinDirectory(configformat.RootPath(), path)
 }
 
 func withinDirectory(root, path string) bool {
@@ -439,6 +559,92 @@ func projectContextSchemaFields() string {
 		projectcontext.MinLinesPerSection, projectcontext.MaxLinesPerSection, defaults.MaxLinesPerSection,
 		defaults.IncludeGit, defaults.IncludeMemory, defaults.IncludeSkills,
 	)
+}
+
+func rejectUnknownArgs(args map[string]any, allowed ...string) error {
+	permitted := make(map[string]bool, len(allowed))
+	for _, key := range allowed {
+		permitted[key] = true
+	}
+	for key := range args {
+		if !permitted[key] {
+			return fmt.Errorf("unknown property %q", key)
+		}
+	}
+	return nil
+}
+
+func requiredBool(args map[string]any, key string) (bool, error) {
+	value, ok := args[key]
+	if !ok {
+		return false, fmt.Errorf("%s is required", key)
+	}
+	flag, ok := value.(bool)
+	if !ok {
+		return false, fmt.Errorf("%s must be a boolean", key)
+	}
+	return flag, nil
+}
+
+func skillFilesFromArgs(args map[string]any) ([]nativeinstruction.File, error) {
+	value, exists := args["files"]
+	if !exists {
+		return nil, nil
+	}
+	items, ok := value.([]any)
+	if !ok {
+		return nil, errors.New("files must be an array")
+	}
+	result := make([]nativeinstruction.File, 0, len(items))
+	for i, raw := range items {
+		item, ok := raw.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("files[%d] must be an object", i)
+		}
+		if err := rejectUnknownArgs(item, "path", "content", "encoding", "executable"); err != nil {
+			return nil, fmt.Errorf("files[%d]: %w", i, err)
+		}
+		path, err := requiredString(item, "path")
+		if err != nil {
+			return nil, fmt.Errorf("files[%d]: %w", i, err)
+		}
+		content, ok := item["content"].(string)
+		if !ok {
+			return nil, fmt.Errorf("files[%d].content must be a string", i)
+		}
+		encoding, err := optionalStringDefault(item, "encoding", "utf8")
+		if err != nil {
+			return nil, fmt.Errorf("files[%d]: %w", i, err)
+		}
+		executable, err := optionalBool(item, "executable", false)
+		if err != nil {
+			return nil, fmt.Errorf("files[%d]: %w", i, err)
+		}
+		data, err := decodeSkillFile(encoding, content)
+		if err != nil {
+			return nil, fmt.Errorf("files[%d]: %w", i, err)
+		}
+		result = append(result, nativeinstruction.File{Path: path, Data: data, Executable: executable})
+	}
+	return result, nil
+}
+
+func decodeSkillFile(encoding, content string) ([]byte, error) {
+	switch strings.TrimSpace(encoding) {
+	case "", "utf8":
+		if !utf8.ValidString(content) {
+			return nil, errors.New("content must be valid utf8")
+		}
+		return []byte(content), nil
+	case "base64":
+		data, err := base64.StdEncoding.DecodeString(content)
+		if err != nil {
+			return nil, fmt.Errorf("invalid base64 content: %w", err)
+		}
+		return data, nil
+	default:
+		return nil, fmt.Errorf("unsupported encoding %q", encoding)
+	}
 }
 
 func workspaceFromArgs(workspaces *workspace.Manager, args map[string]any) (workspace.Workspace, error) {

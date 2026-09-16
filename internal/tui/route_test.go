@@ -15,7 +15,22 @@ func TestParseRoute(t *testing.T) {
 		{[]string{"ws", "ws_abc"}, Route{Kind: RouteWorkspaces, ResourceID: "ws_abc"}},
 		{[]string{"containers", "wsc_abc"}, Route{Kind: RouteContainers, ResourceID: "wsc_abc"}},
 		{[]string{"mcp", "github"}, Route{Kind: RouteMCP, ResourceID: "github"}},
+		{[]string{"plugins"}, Route{Kind: RoutePlugins}},
+		{[]string{"plugins", "@ws_abc"}, Route{Kind: RoutePlugins, Mode: "ws_abc"}},
+		{[]string{"plugins", "@ws_abc", "bash"}, Route{Kind: RoutePlugins, Mode: "ws_abc", ResourceID: "bash"}},
+		{[]string{"plugins", "@ws_abc", "marketplace"}, Route{Kind: RoutePlugins, Mode: "ws_abc", Section: "marketplace"}},
+		{[]string{"plugin", "bash"}, Route{Kind: RoutePlugins, ResourceID: "bash"}},
+		{[]string{"plugins", "marketplace"}, Route{Kind: RoutePlugins, Section: "marketplace"}},
+		{[]string{"plugins", "marketplace", "official/bash"}, Route{Kind: RoutePlugins, Section: "marketplace", ResourceID: "official/bash"}},
+		{[]string{"plugins", "updates", "bash"}, Route{Kind: RoutePlugins, Section: "updates", ResourceID: "bash"}},
+		{[]string{"plugins", "registries"}, Route{Kind: RoutePlugins, Section: "registries"}},
+		{[]string{"plugins", "registries", "community"}, Route{Kind: RoutePlugins, Section: "registries", ResourceID: "community"}},
 		{[]string{"tunnel"}, Route{Kind: RouteTunnel}},
+		{[]string{"tunnel", "create"}, Route{Kind: RouteTunnel, Action: "create"}},
+		{[]string{"tunnel", "tunnel_abc"}, Route{Kind: RouteTunnel, ResourceID: "tunnel_abc"}},
+		{[]string{"tunnel", "tunnel_abc", "edit"}, Route{Kind: RouteTunnel, ResourceID: "tunnel_abc", Action: "edit"}},
+		{[]string{"admins"}, Route{Kind: RouteTunnelAdmins}},
+		{[]string{"admins", "work"}, Route{Kind: RouteTunnelAdmins, ResourceID: "work"}},
 		{[]string{"tunnels"}, Route{Kind: RouteTunnels}},
 		{[]string{"tunnels", "tunnel_abc"}, Route{Kind: RouteTunnels, ResourceID: "tunnel_abc"}},
 		{[]string{"logs"}, Route{Kind: RouteLogs}},
@@ -33,6 +48,7 @@ func TestParseRoute(t *testing.T) {
 		{[]string{"containers", "wsc_abc", "workspaces"}, Route{Kind: RouteContainers, ResourceID: "wsc_abc", Section: "workspaces"}},
 		{[]string{"mcp", "github", "health"}, Route{Kind: RouteMCP, ResourceID: "github", Section: "health"}},
 		{[]string{"tunnels", "tunnel_abc", "scope"}, Route{Kind: RouteTunnels, ResourceID: "tunnel_abc", Section: "scope"}},
+		{[]string{"requests", "req_abc"}, Route{Kind: RouteRequests, Mode: "all", ResourceID: "req_abc"}},
 		{[]string{"requests", "req_abc", "guard"}, Route{Kind: RouteRequests, Mode: "all", ResourceID: "req_abc", Section: "guard"}},
 		{[]string{"requests", "pending"}, Route{Kind: RouteRequests, Mode: "pending"}},
 		{[]string{"requests", "history", "req_abc"}, Route{Kind: RouteRequests, Mode: "history", ResourceID: "req_abc"}},
@@ -59,10 +75,18 @@ func TestParseRoute(t *testing.T) {
 			t.Fatalf("ParseRoute(%v) = %#v, %v; want %#v", test.args, got, err, test.want)
 		}
 	}
-	for _, args := range [][]string{{"missing"}, {"tunnel", "extra"}, {"mcp", "a", "missing"}, {"config", "key", "extra"}, {"logs-exec", "settings"}, {"logs-exec", "exec_a", "extra"}, {"logs-tools", "call_a", "extra"}, {"mcp", "a", "health", "extra"}, {"requests", "history", "req", "guard", "extra"}, {"instruction", "missing"}, {"instruction", "rules", "extra"}} {
+	for _, args := range [][]string{{"missing"}, {"tunnel", "a", "extra"}, {"mcp", "a", "missing"}, {"plugins", "missing", "extra"}, {"plugins", "marketplace", "bash", "extra"}, {"config", "key", "extra"}, {"logs-exec", "settings"}, {"logs-exec", "exec_a", "extra"}, {"logs-tools", "call_a", "extra"}, {"mcp", "a", "health", "extra"}, {"requests", "history", "req", "guard", "extra"}, {"instruction", "missing"}, {"instruction", "rules", "extra"}} {
 		if _, err := ParseRoute(args); err == nil {
 			t.Fatalf("ParseRoute(%v) unexpectedly succeeded", args)
 		}
+	}
+}
+
+func TestApprovalReviewRouteOmitsResolveActions(t *testing.T) {
+	got := ApprovalReviewRoute("req_abc")
+	parsed, err := ParseRoute([]string{"requests", "req_abc"})
+	if err != nil || got != parsed || got.Action != "" || got.Kind != RouteRequests || got.ResourceID != "req_abc" {
+		t.Fatalf("review route=%#v parsed=%#v err=%v", got, parsed, err)
 	}
 }
 
@@ -80,9 +104,12 @@ func TestParseEditorRoutes(t *testing.T) {
 		{[]string{"containers", "wsc_1", "workspaces", "edit"}, Route{Kind: RouteContainers, ResourceID: "wsc_1", Section: "workspaces", Action: "edit"}},
 		{[]string{"mcp", "create"}, Route{Kind: RouteMCP, Action: "create"}},
 		{[]string{"mcp", "github", "edit"}, Route{Kind: RouteMCP, ResourceID: "github", Action: "edit"}},
-		{[]string{"mcp", "github", "oauth", "login"}, Route{Kind: RouteMCP, ResourceID: "github", Section: "oauth", Action: "login"}},
-		{[]string{"tunnel", "edit"}, Route{Kind: RouteTunnel, Action: "edit"}},
-		{[]string{"tunnel", "admin-key", "edit"}, Route{Kind: RouteTunnel, Section: "admin-key", Action: "edit"}},
+		{[]string{"plugins", "registries", "add"}, Route{Kind: RoutePlugins, Section: "registries", Action: "add"}},
+		{[]string{"plugins", "ponytail", "configure"}, Route{Kind: RoutePlugins, ResourceID: "ponytail", Action: "configure"}},
+		{[]string{"plugins", "@ws_abc", "ponytail", "configure"}, Route{Kind: RoutePlugins, Mode: "ws_abc", ResourceID: "ponytail", Action: "configure"}},
+		{[]string{"admins", "create"}, Route{Kind: RouteTunnelAdmins, Action: "create"}},
+		{[]string{"admins", "work", "edit"}, Route{Kind: RouteTunnelAdmins, ResourceID: "work", Action: "edit"}},
+		{[]string{"admins", "work", "managed"}, Route{Kind: RouteTunnelAdmins, ResourceID: "work", Section: "managed"}},
 		{[]string{"tunnels", "create"}, Route{Kind: RouteTunnels, Action: "create"}},
 		{[]string{"tunnels", "tun_1", "edit"}, Route{Kind: RouteTunnels, ResourceID: "tun_1", Action: "edit"}},
 		{[]string{"tunnels", "tun_1", "configure"}, Route{Kind: RouteTunnels, ResourceID: "tun_1", Action: "configure"}},
@@ -113,8 +140,8 @@ func TestParseEditorRoutesRejectsMalformedPaths(t *testing.T) {
 		{"workspaces", "register", "extra"},
 		{"workspaces", "ws_1", "access", "edit"},
 		{"containers", "wsc_1", "workspaces", "create"},
-		{"mcp", "github", "oauth", "edit"},
-		{"tunnel", "admin-key"},
+		{"mcp", "github", "oauth"},
+		{"tunnel", "tunnel_abc", "scope"},
 		{"tunnels", "tun_1", "create"},
 		{"config", "storage", "edit"},
 		{"runtime", "install", "extra"},
@@ -159,8 +186,12 @@ func TestEditorRouteStacksFollowSemanticAncestry(t *testing.T) {
 			[]Route{{Kind: RouteConfig}, {Kind: RouteConfig, ResourceID: "storage"}, {Kind: RouteConfig, Section: "storage", Action: "export"}},
 		},
 		{
-			Route{Kind: RouteTunnel, Section: "admin-key", Action: "edit"},
-			[]Route{{Kind: RouteTunnel}, {Kind: RouteTunnel, Section: "admin-key", Action: "edit"}},
+			Route{Kind: RoutePlugins, Section: "marketplace", ResourceID: "official/bash"},
+			[]Route{{Kind: RoutePlugins}, {Kind: RoutePlugins, Section: "marketplace"}, {Kind: RoutePlugins, Section: "marketplace", ResourceID: "official/bash"}},
+		},
+		{
+			Route{Kind: RoutePlugins, Section: "registries", Action: "add"},
+			[]Route{{Kind: RoutePlugins}, {Kind: RoutePlugins, Section: "registries"}, {Kind: RoutePlugins, Section: "registries", Action: "add"}},
 		},
 		{
 			Route{Kind: RouteGuide, ResourceID: "mcp"},
@@ -188,8 +219,10 @@ func TestRouteStacksTreatTopLevelTabsAsRoots(t *testing.T) {
 	for route, want := range map[Route][]Route{
 		{Kind: RouteContainers}:                    {{Kind: RouteContainers}},
 		{Kind: RouteTunnels}:                       {{Kind: RouteTunnel}, {Kind: RouteTunnels}},
+		{Kind: RouteTunnelAdmins}:                  {{Kind: RouteTunnel}, {Kind: RouteTunnelAdmins}},
 		{Kind: RouteLogsExec}:                      {{Kind: RouteLogsExec}},
 		{Kind: RouteLogsTools}:                     {{Kind: RouteLogsTools}},
+		{Kind: RoutePlugins}:                       {{Kind: RoutePlugins}},
 		{Kind: RouteRequests, Mode: "pending"}:     {{Kind: RouteRequests, Mode: "pending"}},
 		{Kind: RouteInstruction, Section: "rules"}: {{Kind: RouteInstruction, Section: "rules"}},
 	} {
@@ -212,8 +245,14 @@ func TestRouteBreadcrumbLabelsUseNavigableAncestry(t *testing.T) {
 	}{
 		{Route{Kind: RouteWorkspaces, ResourceID: "ws_demo", Section: "context"}, []string{"Workspaces", "ws_demo", "Project Context"}},
 		{Route{Kind: RouteContainers, ResourceID: "wsc_demo", Section: "workspaces", Action: "edit"}, []string{"Containers", "wsc_demo", "Workspaces", "Edit"}},
-		{Route{Kind: RouteMCP, ResourceID: "github", Section: "oauth", Action: "login"}, []string{"MCP", "github", "OAuth", "Login"}},
+		{Route{Kind: RoutePlugins, Section: "marketplace", ResourceID: "official/bash"}, []string{"Plugins", "Marketplace", "official/bash"}},
+		{Route{Kind: RoutePlugins, Section: "registries", Action: "add"}, []string{"Plugins", "Registries", "Add"}},
+		{Route{Kind: RoutePlugins, ResourceID: "ponytail", Action: "configure"}, []string{"Plugins", "ponytail", "Configure"}},
 		{Route{Kind: RouteTunnels, ResourceID: "tun_demo", Action: "configure"}, []string{"Tunnel", "Managed Tunnels", "tun_demo", "Configure"}},
+		{Route{Kind: RouteTunnel, Action: "create"}, []string{"Tunnel", "Create"}},
+		{Route{Kind: RouteTunnel, ResourceID: "tun_demo", Action: "edit"}, []string{"Tunnel", "tun_demo", "Edit"}},
+		{Route{Kind: RouteTunnelAdmins, ResourceID: "work", Action: "edit"}, []string{"Tunnel", "Admin Profiles", "work", "Edit"}},
+		{Route{Kind: RouteTunnelAdmins, ResourceID: "work", Section: "managed"}, []string{"Tunnel", "Admin Profiles", "work", "Managed"}},
 		{Route{Kind: RouteRequests, Mode: "pending", ResourceID: "req_demo", Section: "guard"}, []string{"Pending", "req_demo", "Guard"}},
 		{Route{Kind: RouteLogsExec}, []string{"Command Execution"}},
 		{Route{Kind: RouteLogsExec, ResourceID: "exec_demo"}, []string{"Command Execution", "exec_demo"}},
@@ -247,9 +286,12 @@ func TestRouteBreadcrumbInventoryCoversAllChildFamilies(t *testing.T) {
 		{Kind: RouteContainers, ResourceID: "wsc_a", Section: "workspaces", Action: "edit"},
 		{Kind: RouteMCP, ResourceID: "server_a"},
 		{Kind: RouteMCP, ResourceID: "server_a", Section: "health"},
-		{Kind: RouteMCP, ResourceID: "server_a", Section: "oauth", Action: "login"},
-		{Kind: RouteTunnel, Action: "edit"},
-		{Kind: RouteTunnel, Section: "admin-key", Action: "edit"},
+		{Kind: RoutePlugins, ResourceID: "ponytail", Action: "configure"},
+		{Kind: RouteTunnel, ResourceID: "tun_a"},
+		{Kind: RouteTunnel, Action: "create"},
+		{Kind: RouteTunnel, ResourceID: "tun_a", Action: "edit"},
+		{Kind: RouteTunnelAdmins, ResourceID: "work"},
+		{Kind: RouteTunnelAdmins, ResourceID: "work", Section: "managed"},
 		{Kind: RouteTunnels},
 		{Kind: RouteTunnels, ResourceID: "tun_a", Section: "scope"},
 		{Kind: RouteTunnels, ResourceID: "tun_a", Action: "configure"},
@@ -292,7 +334,6 @@ func TestEditorRouteTitlesIncludeActionWithoutChangingLegacyOrder(t *testing.T) 
 	for route, want := range map[Route]string{
 		{Kind: RouteMCP, Action: "create"}:                                               "MCP Servers · Create",
 		{Kind: RouteMCP, ResourceID: "github", Action: "edit"}:                           "MCP Servers · github · Edit",
-		{Kind: RouteMCP, ResourceID: "github", Section: "oauth", Action: "login"}:        "MCP Servers · github · Oauth · Login",
 		{Kind: RouteInstruction, Section: "context", Action: "edit"}:                     "Instruction · Context · Edit",
 		{Kind: RouteInstruction, ResourceID: "rule_1", Section: "rules", Action: "edit"}: "Instruction · Rules · rule_1 · Edit",
 	} {
@@ -310,13 +351,6 @@ func TestInstructionTabsAreBreadcrumbRoots(t *testing.T) {
 	}
 	if router.Back() {
 		t.Fatalf("instruction tab root backed unexpectedly: route=%#v stack=%#v", router.Current(), router.stack)
-	}
-}
-
-func TestRouteTitleIncludesChildSection(t *testing.T) {
-	route := Route{Kind: RouteMCP, ResourceID: "github", Section: "oauth"}
-	if got, want := route.Title(), "MCP Servers · github · Oauth"; got != want {
-		t.Fatalf("title=%q want=%q", got, want)
 	}
 }
 

@@ -29,6 +29,23 @@ test("plugin workflow definitions match registry and source manifests", async ()
   await validateRepositoryWorkflow(workflow)
 })
 
+test("admin-ui is the declared default-enabled core plugin", async () => {
+  const workflow = await loadWorkflow()
+  const admin = workflow.plugins.find(plugin => plugin.id === "admin-ui")
+  assert.equal(admin?.core?.required, false)
+  assert.equal(admin?.core?.enabled, true)
+  for (const plugin of workflow.plugins.filter(candidate => candidate.id !== "admin-ui")) {
+    assert.equal(plugin.core, undefined)
+  }
+})
+
+test("plugin workflow rejects invalid core metadata", () => {
+  assert.throws(() => validateWorkflow({
+    schema: 1,
+    plugins: [{ id: "demo", build: { runner: "ubuntu-latest", mode: "manifest" }, core: { required: "yes" } }]
+  }), /core\.required must be a boolean/)
+})
+
 test("plugin workflow rejects duplicate plugin ids", () => {
   assert.throws(() => validateWorkflow({
     schema: 1,

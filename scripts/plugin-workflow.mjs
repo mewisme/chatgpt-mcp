@@ -26,6 +26,7 @@ export function validateWorkflow(workflow) {
     ids.add(plugin.id)
     validateBuild(plugin)
     if (plugin.smoke !== undefined) validateSmoke(plugin)
+    if (plugin.core !== undefined) validateCore(plugin)
   }
   return workflow
 }
@@ -45,6 +46,7 @@ export async function validateRepositoryWorkflow(workflow) {
     const manifest = await readPluginManifest(plugin.id)
     const entry = index.plugins[plugin.id]
     if (entry.name !== manifest.name || entry.type !== manifest.type || !entry.versions?.[manifest.version]) throw new Error(`plugin workflow ${plugin.id} source manifest is not represented by registry index`)
+    if (!sameCore(plugin.core, entry.core)) throw new Error(`plugin workflow ${plugin.id} core metadata does not match registry index`)
   }
   return workflow
 }
@@ -108,6 +110,30 @@ function validateSmoke(plugin) {
     if (probe.args !== undefined && (!Array.isArray(probe.args) || probe.args.some(value => typeof value !== "string"))) throw new Error(`plugin workflow ${plugin.id} smoke probe args must be strings`)
     if (probe.stdout !== undefined && typeof probe.stdout !== "string") throw new Error(`plugin workflow ${plugin.id} smoke probe stdout must be a string`)
   }
+}
+
+function validateCore(plugin) {
+  const core = plugin.core
+  if (!core || typeof core !== "object" || Array.isArray(core)) throw new Error(`plugin workflow ${plugin.id} core must be an object`)
+  for (const key of Object.keys(core)) {
+    if (!["required", "enabled", "platforms"].includes(key)) throw new Error(`plugin workflow ${plugin.id} has unsupported core field ${key}`)
+  }
+  if (core.required !== undefined && typeof core.required !== "boolean") throw new Error(`plugin workflow ${plugin.id} core.required must be a boolean`)
+  if (core.enabled !== undefined && typeof core.enabled !== "boolean") throw new Error(`plugin workflow ${plugin.id} core.enabled must be a boolean`)
+  if (core.platforms !== undefined) {
+    if (!Array.isArray(core.platforms) || !core.platforms.length || core.platforms.some(value => typeof value !== "string" || !/^[a-z0-9]+(?:-[a-z0-9]+)*\/[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value))) {
+      throw new Error(`plugin workflow ${plugin.id} core.platforms must be os/arch values`)
+    }
+  }
+}
+
+function sameCore(left, right) {
+  const fingerprint = core => core == null ? null : JSON.stringify({
+    required: core.required === true,
+    enabled: core.enabled !== false,
+    platforms: [...(core.platforms ?? [])].sort()
+  })
+  return fingerprint(left) === fingerprint(right)
 }
 
 function validateCommand(id, field, command) {

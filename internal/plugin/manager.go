@@ -722,6 +722,17 @@ func (manager Manager) downloadArtifact(ctx context.Context, baseURL string, art
 		return path, nil
 	}
 	_ = os.Remove(path)
+	if sidecar := manager.sidecarArtifact(artifact.Artifact); sidecar != "" {
+		if _, err := os.Stat(sidecar); err == nil {
+			if err := verifyFileSHA256(sidecar, artifact.SHA256); err != nil {
+				return "", fmt.Errorf("plugin sidecar artifact: %w", err)
+			}
+			if err := copyRegularFile(sidecar, path, 0600); err != nil {
+				return "", err
+			}
+			return path, nil
+		}
+	}
 	base, err := url.Parse(strings.TrimRight(baseURL, "/") + "/")
 	if err != nil || base.Scheme != "https" || base.Host == "" {
 		return "", errors.New("plugin artifact URL must use HTTPS")
@@ -771,6 +782,14 @@ func (manager Manager) downloadArtifact(ctx context.Context, baseURL string, art
 		return "", err
 	}
 	return path, nil
+}
+
+func (manager Manager) sidecarArtifact(name string) string {
+	dir := strings.TrimSpace(manager.RegistryClient.LocalDir)
+	if dir == "" || !safeAssetName(name) {
+		return ""
+	}
+	return filepath.Join(dir, filepath.Base(name))
 }
 
 func (manager Manager) preparePortableHost(ctx context.Context, portable HostPortableInstall) (string, error) {

@@ -75,7 +75,15 @@ func LoadInstallationOverview() (InstallationOverview, error) {
 }
 
 func InstallCurrent(options InstallCurrentOptions) (install.Result, error) {
-	return install.Install(install.Options{Version: version.Version, NoAlias: options.NoAlias, Force: options.Force, MigrateLegacy: options.MigrateLegacy})
+	result, err := install.Install(install.Options{Version: version.Version, NoAlias: options.NoAlias, Force: options.Force, MigrateLegacy: options.MigrateLegacy})
+	if err != nil {
+		return result, err
+	}
+	report, _ := ReconcileCorePlugins(context.Background())
+	if err := RollbackRequiredCoreFailure(context.Background(), result, report); err != nil {
+		return result, err
+	}
+	return result, nil
 }
 
 func CleanupLegacyInstallations() (install.LegacyCleanupResult, error) {
@@ -185,6 +193,20 @@ func ApplyUpdate(ctx context.Context, options UpdateApplyOptions) (UpdateApplyRe
 	} else if running && options.NoRestart {
 		output.Notice = appendUpdateNotice(output.Notice, fmt.Sprintf("Runtime restart skipped; pid %d still uses the previous version", runtimeState.PID))
 	}
+	report, recErr := ReconcileCorePlugins(ctx)
+	if err := RollbackRequiredCoreFailure(ctx, result.Install, report); err != nil {
+		if running && !options.NoRestart && runtimeState.Managed {
+			if restartErr := restartUpdatedManagedRuntime(ctx, result.Install.Layout, runtimeState); restartErr != nil {
+				return UpdateApplyResult{}, fmt.Errorf("%w; previous runtime restart failed: %v", err, restartErr)
+			}
+		}
+		return UpdateApplyResult{}, err
+	}
+	if recErr != nil {
+		output.Notice = appendUpdateNotice(output.Notice, "core plugin reconcile: "+recErr.Error())
+	} else if notice := formatCorePluginNotice(report); notice != "" {
+		output.Notice = appendUpdateNotice(output.Notice, notice)
+	}
 	if err := install.FinalizeResultContext(ctx, result.Install); err != nil {
 		output.Notice = appendUpdateNotice(output.Notice, "update succeeded but old version cleanup failed: "+err.Error())
 	}
@@ -235,6 +257,46 @@ func appendUpdateNotice(current, next string) string {
 		return current
 	}
 	return current + "; " + next
+}
+
+func ReconcileCorePlugins(ctx context.Context) (pluginpkg.CoreReconcileReport, error) {
+	service, err := NewPluginService()
+	if err != nil {
+		return pluginpkg.CoreReconcileReport{}, err
+	}
+	return service.Manager.ReconcileCoreSet(ctx)
+}
+
+func RollbackRequiredCoreFailure(ctx context.Context, result install.Result, report pluginpkg.CoreReconcileReport) error {
+	req := report.RequiredError()
+	if req == nil {
+		return nil
+	}
+	if result.AlreadyInstalled {
+		return req
+	}
+	if err := install.RollbackResultContext(ctx, result); err != nil {
+		return fmt.Errorf("%w; rollback failed: %v", req, err)
+	}
+	return fmt.Errorf("%w; previous version restored", req)
+}
+
+func formatCorePluginNotice(report pluginpkg.CoreReconcileReport) string {
+	if len(report.Items) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(report.Items))
+	for _, item := range report.Items {
+		part := fmt.Sprintf("%s %s", item.ID, item.Action)
+		if item.Version != "" {
+			part += "@" + string(item.Version)
+		}
+		if item.Error != "" {
+			part += ": " + item.Error
+		}
+		parts = append(parts, part)
+	}
+	return "core plugins: " + strings.Join(parts, "; ")
 }
 
 func targetPluginCompatibilityNotice(target string) string {

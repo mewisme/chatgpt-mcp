@@ -1,6 +1,7 @@
 package application
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -8,6 +9,7 @@ import (
 	"testing"
 
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
+	"go.mewis.me/chatgpt-mcp/internal/install"
 	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
 	"go.mewis.me/chatgpt-mcp/internal/version"
 )
@@ -64,5 +66,22 @@ func TestTargetPluginCompatibilityNoticeWarnsWithoutMutatingPluginState(t *testi
 	}
 	if before.Plugins["incompatible"] != after.Plugins["incompatible"] {
 		t.Fatalf("compatibility preflight mutated plugin state: before=%#v after=%#v", before.Plugins["incompatible"], after.Plugins["incompatible"])
+	}
+}
+
+func TestRollbackRequiredCoreFailureSkipsAlreadyInstalled(t *testing.T) {
+	report := pluginpkg.CoreReconcileReport{Items: []pluginpkg.CoreReconcileItem{{ID: "admin-ui", Action: pluginpkg.CoreActionFailed, Required: true, Error: "missing artifact"}}}
+	err := RollbackRequiredCoreFailure(context.Background(), install.Result{AlreadyInstalled: true}, report)
+	if err == nil || !strings.Contains(err.Error(), "required core plugin admin-ui failed") || strings.Contains(err.Error(), "previous version restored") {
+		t.Fatalf("already-installed required failure = %v", err)
+	}
+}
+
+func TestFormatCorePluginNoticeListsActions(t *testing.T) {
+	got := formatCorePluginNotice(pluginpkg.CoreReconcileReport{Items: []pluginpkg.CoreReconcileItem{
+		{ID: "admin-ui", Version: "1.0.0", Action: pluginpkg.CoreActionInstalled},
+	}})
+	if got != "core plugins: admin-ui installed@1.0.0" {
+		t.Fatalf("notice = %q", got)
 	}
 }

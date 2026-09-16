@@ -96,6 +96,9 @@ func upgradeCommand() *cobra.Command {
 		if err := coordinateUpdatedRuntime(cmd, result.Install, runtimeState, noRestart); err != nil {
 			return fmt.Errorf("update to %s failed after activation: %w", result.Target, err)
 		}
+		if err := reconcileCorePluginsAfterInstall(cmd, log, "UPDATE", result.Install); err != nil {
+			return err
+		}
 		if err := install.FinalizeResultContext(cmd.Context(), result.Install); err != nil {
 			log.Warning("UPDATE", "update.cleanup-failed", "Update succeeded but old version cleanup failed", err)
 		}

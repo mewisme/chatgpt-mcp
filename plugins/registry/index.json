@@ -8,6 +8,10 @@
       "description": "Static admin dashboard for ChatGPT MCP",
       "type": "web-ui",
       "scopes": ["global"],
+      "core": {
+        "required": false,
+        "enabled": true
+      },
       "stable": "1.0.0",
       "versions": {
         "1.0.0": "admin-ui-1.0.0.json"

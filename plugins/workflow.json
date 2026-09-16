@@ -31,6 +31,10 @@
     },
     {
       "id": "admin-ui",
+      "core": {
+        "required": false,
+        "enabled": true
+      },
       "build": {
         "runner": "ubuntu-latest",
         "command": [

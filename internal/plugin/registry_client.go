@@ -29,6 +29,7 @@ type RegistryClient struct {
 	UserAgent  string
 	Verifier   RegistrySignatureVerifier
 	Now        func() time.Time
+	LocalDir   string
 }
 
 type registryCacheMetadata struct {
@@ -221,6 +222,11 @@ func (client RegistryClient) fetch(ctx context.Context, baseURL, asset string, l
 	if !safeRegistryAssetName(asset) {
 		return nil, fmt.Errorf("unsafe plugin registry asset name: %q", asset)
 	}
+	if data, ok, err := client.readSidecar(asset, limit); err != nil {
+		return nil, err
+	} else if ok {
+		return data, nil
+	}
 	resolved, err := base.Parse(url.PathEscape(asset))
 	if err != nil || resolved.Host != base.Host {
 		return nil, errors.New("plugin registry asset URL escaped registry host")
@@ -254,6 +260,32 @@ func (client RegistryClient) fetch(ctx context.Context, baseURL, asset string, l
 		return nil, fmt.Errorf("plugin registry asset %s has invalid size", asset)
 	}
 	return data, nil
+}
+
+func (client RegistryClient) readSidecar(asset string, limit int64) ([]byte, bool, error) {
+	dir := strings.TrimSpace(client.LocalDir)
+	if dir == "" {
+		return nil, false, nil
+	}
+	path := filepath.Join(dir, filepath.Base(asset))
+	info, err := os.Stat(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+	if info.Size() <= 0 || info.Size() > limit {
+		return nil, false, fmt.Errorf("plugin registry sidecar asset %s has invalid size", asset)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, false, err
+	}
+	if int64(len(data)) > limit || len(data) == 0 {
+		return nil, false, fmt.Errorf("plugin registry sidecar asset %s has invalid size", asset)
+	}
+	return data, true, nil
 }
 
 func (client RegistryClient) writeCache(registry Registry, index, indexSig, publishers, publishersSig []byte, fetchedAt time.Time) error {

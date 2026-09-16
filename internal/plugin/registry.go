@@ -30,9 +30,23 @@ type RegistryEntry struct {
 	Type        PluginType         `json:"type"`
 	Scopes      []PluginScope      `json:"scopes,omitempty"`
 	Provides    []Capability       `json:"provides,omitempty"`
+	Core        *CorePolicy        `json:"core,omitempty"`
 	Stable      Version            `json:"stable,omitempty"`
 	Beta        Version            `json:"beta,omitempty"`
 	Versions    map[Version]string `json:"versions"`
+}
+
+type CorePolicy struct {
+	Required  bool     `json:"required"`
+	Enabled   *bool    `json:"enabled,omitempty"`
+	Platforms []string `json:"platforms,omitempty"`
+}
+
+func (policy *CorePolicy) defaultEnabled() bool {
+	if policy == nil || policy.Enabled == nil {
+		return true
+	}
+	return *policy.Enabled
 }
 
 type PublisherIndex struct {
@@ -121,6 +135,9 @@ func (index RegistryIndex) Validate() error {
 			if err := validatePluginScopes(entry.Scopes); err != nil {
 				return fmt.Errorf("registry plugin %s: %w", idValue, err)
 			}
+		}
+		if err := entry.Core.validate(idValue, entry.Stable); err != nil {
+			return err
 		}
 		if len(entry.Versions) == 0 {
 			return fmt.Errorf("registry plugin %s has no versions", idValue)
@@ -242,4 +259,19 @@ func ResolveAcross(snapshots []RegistrySnapshot, registryName string, id PluginI
 		return ResolvedPlugin{}, fmt.Errorf("plugin %s is ambiguous across registries: %s", id, strings.Join(registries, ", "))
 	}
 	return matches[0], nil
+}
+
+func (policy *CorePolicy) validate(id string, stable Version) error {
+	if policy == nil {
+		return nil
+	}
+	if stable == "" {
+		return fmt.Errorf("registry plugin %s core policy requires a stable version", id)
+	}
+	for _, platform := range policy.Platforms {
+		if !validPlatform(platform) {
+			return fmt.Errorf("registry plugin %s core policy has invalid platform %q", id, platform)
+		}
+	}
+	return nil
 }

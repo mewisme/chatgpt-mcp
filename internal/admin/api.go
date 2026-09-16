@@ -37,6 +37,7 @@ type authSettings struct {
 	MCPEnabled           bool `json:"mcp_enabled"`
 	AdminEnabled         bool `json:"admin_enabled"`
 	MCPTokenConfigured   bool `json:"mcp_token_configured"`
+	MCPTokenRevealable   bool `json:"mcp_token_revealable"`
 	AdminTokenConfigured bool `json:"admin_token_configured"`
 }
 
@@ -83,6 +84,7 @@ func New(api API) http.Handler {
 	mux.HandleFunc("/api/network/interfaces", api.handleNetworkInterfaces)
 
 	mux.HandleFunc("/api/config", api.handleConfig)
+	mux.HandleFunc("/api/auth/mcp-token", api.handleMCPToken)
 	mux.HandleFunc("/api/plugins", api.handlePlugins)
 	mux.HandleFunc("/api/plugins/", api.handlePlugin)
 	mux.HandleFunc("/api/instructions/global", api.handleGlobalInstructions)
@@ -238,7 +240,8 @@ func publicConfigView(cfg config.Config) publicConfig {
 		Server: cfg.Server, Admin: cfg.Admin, Permissions: cfg.Permissions, Shell: cfg.Shell,
 		Auth: authSettings{
 			MCPEnabled: cfg.Auth.MCPEnabled, AdminEnabled: cfg.Auth.AdminEnabled,
-			MCPTokenConfigured: cfg.Auth.MCPTokenHash != "", AdminTokenConfigured: cfg.Auth.AdminTokenHash != "",
+			MCPTokenConfigured: cfg.Auth.MCPTokenHash != "", MCPTokenRevealable: mcpTokenRevealable(cfg.Auth.MCPTokenHash),
+			AdminTokenConfigured: cfg.Auth.AdminTokenHash != "",
 		},
 	}
 }

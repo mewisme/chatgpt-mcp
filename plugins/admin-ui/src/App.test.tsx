@@ -18,6 +18,7 @@ const config = {
     mcp_enabled: true,
     admin_enabled: true,
     mcp_token_configured: true,
+    mcp_token_revealable: true,
     admin_token_configured: true,
   },
   permissions: { allow_dirs: [] },

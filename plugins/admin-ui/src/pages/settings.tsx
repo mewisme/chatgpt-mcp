@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
 import { Save, Undo2 } from "lucide-react"
+import { CopyButton } from "@/components/copy-button"
 import { PageError } from "@/components/page-state"
 import { PageHeader } from "@/components/page-header"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -500,7 +501,7 @@ export function SettingsPage() {
             ))
           )}
         </TabsContent>
-        <TabsContent className="mt-6" value="authentication">
+        <TabsContent className="mt-6 space-y-6" value="authentication">
           <Card>
             <CardHeader>
               <CardTitle>Authentication</CardTitle>
@@ -515,7 +516,7 @@ export function SettingsPage() {
                   label="Direct MCP HTTP authentication"
                   configured={config.auth.mcp_token_configured}
                   checked={config.auth.mcp_enabled}
-                  command="cgm auth mcp create"
+                  command="cgm auth mcp rotate"
                   description="Protects direct connections to /mcp. Secure MCP Tunnel uses separate tunnel credentials and is unaffected."
                   onCheckedChange={(enabled) =>
                     setConfig({
@@ -540,6 +541,18 @@ export function SettingsPage() {
               </FieldGroup>
             </CardContent>
           </Card>
+          <MCPTokenCard
+            config={config}
+            busy={busy}
+            onBusy={setBusy}
+            onConfig={(next) => {
+              const normalized = normalizeConfig(next)
+              setConfig(normalized)
+              setSavedConfig(normalized)
+            }}
+            onMessage={setMessage}
+            onError={setError}
+          />
         </TabsContent>
         <TabsContent className="mt-6" value="environment">
           <Card>
@@ -812,6 +825,117 @@ function ExposureOption({
         <div className="text-sm text-muted-foreground">{description}</div>
       </div>
     </label>
+  )
+}
+function MCPTokenCard({
+  config,
+  busy,
+  onBusy,
+  onConfig,
+  onMessage,
+  onError,
+}: {
+  config: PublicConfig
+  busy: boolean
+  onBusy: (busy: boolean) => void
+  onConfig: (config: PublicConfig) => void
+  onMessage: (message: string) => void
+  onError: (error: string) => void
+}) {
+  const [token, setToken] = useState("")
+  const endpoint = `http://127.0.0.1:${config.server.port}/mcp`
+  const configured = config.auth.mcp_token_configured
+  const revealable = Boolean(config.auth.mcp_token_revealable)
+  const masked = "••••••••••••••••"
+  async function run(label: string, action: () => Promise<void>) {
+    onBusy(true)
+    onMessage("")
+    onError("")
+    try {
+      await action()
+      onMessage(label)
+    } catch (value) {
+      onError(errorText(value))
+    } finally {
+      onBusy(false)
+    }
+  }
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Direct MCP HTTP token</CardTitle>
+        <CardDescription>
+          Reuse this token when adding this MCP server to ChatGPT. You do not need to generate a new token for each connection.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid gap-1 text-sm">
+          <div className="text-muted-foreground">Protects</div>
+          <div className="font-mono break-all">{endpoint}</div>
+          <div className="text-muted-foreground">Does not apply to</div>
+          <div>Secure MCP Tunnel</div>
+        </div>
+        {!config.auth.mcp_enabled ? (
+          <FieldDescription>
+            Direct clients need no bearer token. Secure MCP Tunnel is unaffected.
+          </FieldDescription>
+        ) : (
+          <FieldDescription>
+            Authentication is Bearer token. This token can be reused. Do not rotate it just to add the server to ChatGPT again.
+          </FieldDescription>
+        )}
+        <div className="flex min-w-0 items-center gap-2 rounded-lg border px-3 py-2">
+          <span className="min-w-0 flex-1 font-mono text-sm break-all">
+            {token || (configured ? (revealable ? masked : "configured, rotate to reveal") : "missing")}
+          </span>
+          {token ? <CopyButton label="Copy Direct MCP HTTP token" value={token} /> : null}
+        </div>
+        <ButtonGroup>
+          <Button
+            disabled={busy || !revealable}
+            variant="outline"
+            onClick={() =>
+              void run(token ? "Token hidden" : "Token revealed", async () => {
+                if (token) {
+                  setToken("")
+                  return
+                }
+                const next = await adminApi.mcpToken()
+                setToken(next.token ?? "")
+              })
+            }
+          >
+            {token ? "Hide" : "Reveal"}
+          </Button>
+          <Button
+            disabled={busy || !revealable}
+            variant="outline"
+            onClick={() =>
+              void run("Token copied", async () => {
+                const value = token || (await adminApi.mcpToken()).token || ""
+                await navigator.clipboard.writeText(value)
+              })
+            }
+          >
+            Copy
+          </Button>
+          <Button
+            disabled={busy}
+            variant="outline"
+            onClick={() => {
+              if (!window.confirm("Rotate Direct MCP HTTP token? The previous token stops working immediately.")) return
+              void run("Token rotated", async () => {
+                const next = await adminApi.rotateMCPToken()
+                setToken(next.token ?? "")
+                onConfig(await adminApi.config())
+              })
+            }}
+          >
+            Rotate
+          </Button>
+        </ButtonGroup>
+      </CardContent>
+    </Card>
   )
 }
 function AuthToggle({

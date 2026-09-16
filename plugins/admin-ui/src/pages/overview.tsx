@@ -178,6 +178,11 @@ export function OverviewPage() {
           </CardHeader>
           <CardContent className="space-y-0">
             <AuthState label="Direct MCP HTTP authentication" enabled={data?.mcpAuth} />
+            <p className="pb-3 text-sm text-muted-foreground">
+              {data?.mcpAuth
+                ? `Bearer token required for ${data.mcpEndpoint}. Reuse the Direct MCP HTTP token; do not rotate it just to add ChatGPT again.`
+                : "Direct clients need no bearer token. Secure MCP Tunnel is unaffected."}
+            </p>
             <Separator />
             <AuthState label="Admin authentication" enabled={data?.adminAuth} />
           </CardContent>

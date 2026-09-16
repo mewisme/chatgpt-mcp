@@ -122,6 +122,7 @@ func TestTunnelConfigurePreservesSecretFromSerializedConfigStore(t *testing.T) {
 }
 
 func TestConfigAPIHidesTokenHashes(t *testing.T) {
+	testutil.UseConfigRoot(t, t.TempDir())
 	cfg := config.Default()
 	cfg.Auth.MCPTokenHash = "mcp-secret-hash"
 	cfg.Auth.AdminTokenHash = "admin-secret-hash"
@@ -131,10 +132,10 @@ func TestConfigAPIHidesTokenHashes(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("unexpected status: %d", recorder.Code)
 	}
-	if strings.Contains(body, "secret-hash") || strings.Contains(body, "token_hash") {
+	if strings.Contains(body, "secret-hash") || strings.Contains(body, "token_hash") || strings.Contains(body, `"token":`) {
 		t.Fatalf("config API leaked token hashes: %s", body)
 	}
-	if !strings.Contains(body, `"mcp_token_configured":true`) || !strings.Contains(body, `"admin_token_configured":true`) {
+	if !strings.Contains(body, `"mcp_token_configured":true`) || !strings.Contains(body, `"admin_token_configured":true`) || !strings.Contains(body, `"mcp_token_revealable":false`) {
 		t.Fatalf("configured state missing: %s", body)
 	}
 	if strings.Contains(body, `"host"`) || !strings.Contains(body, `"server":{"enabled":true`) || !strings.Contains(body, `"expose":{"mode":"none","interfaces":[]}`) {

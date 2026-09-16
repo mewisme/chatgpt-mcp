@@ -241,10 +241,17 @@ export type PublicConfig = {
     mcp_enabled: boolean
     admin_enabled: boolean
     mcp_token_configured: boolean
+    mcp_token_revealable?: boolean
     admin_token_configured: boolean
   }
   permissions: { allow_dirs: string[] }
   shell: { path: string[] }
+}
+export type MCPToken = {
+  token?: string
+  configured: boolean
+  revealable: boolean
+  enabled: boolean
 }
 export type PluginLifecycle = {
   install: boolean
@@ -495,6 +502,9 @@ export const adminApi = {
       method: "PUT",
       body: JSON.stringify(config),
     }),
+  mcpToken: () => api<MCPToken>("/api/auth/mcp-token"),
+  rotateMCPToken: () =>
+    api<MCPToken>("/api/auth/mcp-token", { method: "POST" }),
   plugins: (scope?: string, workspaceID?: string) =>
     api<PluginListItem[]>(`/api/plugins${pluginQuery(scope, workspaceID)}`),
   pluginConfig: (id: string, scope?: string, workspaceID?: string) =>

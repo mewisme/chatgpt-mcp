@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"go.mewis.me/chatgpt-mcp/internal/redact"
-	"go.mewis.me/chatgpt-mcp/pkg/cloudflared"
+	"go.mewis.me/chatgpt-mcp/plugins/cf-tunnel/internal/cloudflared"
 )
 
 type StartFunc func(context.Context, cloudflared.Config) (*cloudflared.Tunnel, error)

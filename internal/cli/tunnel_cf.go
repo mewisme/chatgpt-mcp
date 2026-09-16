@@ -11,9 +11,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/application"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
-	"go.mewis.me/chatgpt-mcp/internal/pluginhost"
 	"go.mewis.me/chatgpt-mcp/internal/runtimecontrol"
-	cftunnelplugin "go.mewis.me/chatgpt-mcp/plugins/cf-tunnel"
 )
 
 func reservedTunnelCommand(name string) bool {
@@ -175,14 +173,8 @@ func renderCFTunnelStatus(out io.Writer, cfg config.Config, live *runtimecontrol
 	renderTunnelProviderStatus(out, item, target)
 }
 
-func watchCFTunnel(log *logger.Logger) {
-	pluginhost.SetRuntimeObserver(func(event cftunnelplugin.LifecycleEvent) {
-		logTunnelProviderLifecycle(log, "cf", string(event.State), event.Target, event.URL, event.Error)
-	})
-}
-
-func logCFTunnelLifecycle(log *logger.Logger, event cftunnelplugin.LifecycleEvent) {
-	logTunnelProviderLifecycle(log, "cf", string(event.State), event.Target, event.URL, event.Error)
+func logCFTunnelLifecycle(log *logger.Logger, state, target, url, errText string) {
+	logTunnelProviderLifecycle(log, "cf", state, target, url, errText)
 }
 
 func logTunnelProviderLifecycle(log *logger.Logger, provider, state, target, url, errText string) {

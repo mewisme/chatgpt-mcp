@@ -4,23 +4,10 @@ import (
 	"context"
 
 	"go.mewis.me/chatgpt-mcp/internal/runtimeplugin"
-	cftunnelplugin "go.mewis.me/chatgpt-mcp/plugins/cf-tunnel"
 )
 
 var RuntimeHost = runtimeplugin.NewHost()
 
-func SyncRuntime(ctx context.Context, snap cftunnelplugin.Snapshot) {
-	cftunnelplugin.Sync(ctx, snap)
-}
-
 func StopRuntime() {
-	cftunnelplugin.Stop()
-}
-
-func RuntimeStatus() cftunnelplugin.Status {
-	return cftunnelplugin.LiveStatus()
-}
-
-func SetRuntimeObserver(fn cftunnelplugin.LifecycleObserver) {
-	cftunnelplugin.SetLiveObserver(fn)
+	RuntimeHost.Close(context.Background())
 }

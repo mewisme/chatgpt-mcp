@@ -92,7 +92,6 @@ func LoadRuntimeOverview(ctx context.Context) (RuntimeOverview, error) {
 	overview := RuntimeOverview{Running: running, Status: status, MCPHTTPEnabled: cfg.Server.Enabled, MCPHTTPPort: cfg.Server.Port, TunnelEnabled: cfg.EnabledTunnelCount() > 0, UserService: user, SystemService: system}
 	if !running {
 		overview.Status.TunnelProviders = ListConfiguredTunnelProviders(cfg)
-		overview.Status.CFTunnel = CFTunnelStatusFromSnapshot(CFTunnelSnapshot(cfg))
 	}
 	return overview, nil
 }

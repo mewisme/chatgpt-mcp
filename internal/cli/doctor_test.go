@@ -18,7 +18,6 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 	"go.mewis.me/chatgpt-mcp/internal/upstream"
 	"go.mewis.me/chatgpt-mcp/internal/workspacestate"
-	cftunnelplugin "go.mewis.me/chatgpt-mcp/plugins/cf-tunnel"
 )
 
 func TestDoctorCommandRegistered(t *testing.T) {
@@ -212,7 +211,7 @@ func TestDoctorProjectContextSourceFailure(t *testing.T) {
 
 func TestDoctorCFTunnelMCPMissingAuth(t *testing.T) {
 	saveLoopbackDoctorConfig(t)
-	enableCFTunnelTarget(t, cftunnelplugin.TargetMCP)
+	enableCFTunnelTarget(t, "mcp")
 	cmd := doctorCommand()
 	var out bytes.Buffer
 	cmd.SetOut(&out)
@@ -227,7 +226,7 @@ func TestDoctorCFTunnelMCPMissingAuth(t *testing.T) {
 
 func TestDoctorCFTunnelAdminMissingAuth(t *testing.T) {
 	saveLoopbackDoctorConfig(t)
-	enableCFTunnelTarget(t, cftunnelplugin.TargetAdmin)
+	enableCFTunnelTarget(t, "admin")
 	cmd := doctorCommand()
 	var out bytes.Buffer
 	cmd.SetOut(&out)
@@ -251,8 +250,8 @@ func TestDoctorCFTunnelReportsTargetsIndependently(t *testing.T) {
 	if err := config.Save(cfg); err != nil {
 		t.Fatal(err)
 	}
-	enableCFTunnelTarget(t, cftunnelplugin.TargetMCP)
-	enableCFTunnelTarget(t, cftunnelplugin.TargetAdmin)
+	enableCFTunnelTarget(t, "mcp")
+	enableCFTunnelTarget(t, "admin")
 	cmd := doctorCommand()
 	var out bytes.Buffer
 	cmd.SetOut(&out)
@@ -386,16 +385,8 @@ func loopbackDoctorConfig() config.Config {
 
 func enableCFTunnelTarget(t *testing.T, target string) {
 	t.Helper()
-	layout := pluginpkg.DefaultLayout()
-	store, err := pluginpkg.NewStore(layout, pluginpkg.RuntimeContext{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	store.Builtins = pluginpkg.BuiltinRegistry{cftunnelplugin.Plugin()}
-	if err := store.SetEnabled("cf-tunnel", true); err != nil {
-		t.Fatal(err)
-	}
-	if err := (pluginpkg.SettingsStore{Layout: layout}).Set(cftunnelplugin.Plugin().Schema, "cf-tunnel", target, true); err != nil {
+	testutil.InstallStubTunnelPlugin(t, true)
+	if err := (pluginpkg.SettingsStore{Layout: pluginpkg.DefaultLayout()}).Set(testutil.TunnelProviderSettingsSchema(), "cf-tunnel", target, true); err != nil {
 		t.Fatal(err)
 	}
 }

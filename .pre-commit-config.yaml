@@ -28,7 +28,7 @@ repos:
   - repo: local
     hooks:
       - id: go-staticcheck
-        name: staticcheck (exclude pkg/cloudflared)
+        name: staticcheck (exclude plugins/cf-tunnel/internal/cloudflared)
         entry: ./scripts/staticcheck.sh
         language: system
         pass_filenames: false

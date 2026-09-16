@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"go.mewis.me/chatgpt-mcp/pkg/cloudflared"
+	"go.mewis.me/chatgpt-mcp/plugins/cf-tunnel/internal/cloudflared"
 )
 
 func TestManagerDisabledNeverStarts(t *testing.T) {

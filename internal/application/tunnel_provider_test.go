@@ -21,6 +21,7 @@ func TestLookupTunnelProviderMissing(t *testing.T) {
 
 func TestStartTunnelProviderUnknownTarget(t *testing.T) {
 	testutil.UseConfigRoot(t, t.TempDir())
+	testutil.InstallStubTunnelPlugin(t, false)
 	err := StartTunnelProvider(context.Background(), config.Default(), "cf", "ssh")
 	if !errors.Is(err, tunnelprovider.ErrInvalidDescriptor) {
 		t.Fatalf("err = %v", err)
@@ -29,6 +30,7 @@ func TestStartTunnelProviderUnknownTarget(t *testing.T) {
 
 func TestStartTunnelProviderAuthFailsBeforeEnable(t *testing.T) {
 	testutil.UseConfigRoot(t, t.TempDir())
+	testutil.InstallStubTunnelPlugin(t, false)
 	cfg := config.Default()
 	if err := StartTunnelProvider(context.Background(), cfg, "cf", "mcp"); !errors.Is(err, tunnelprovider.ErrMCPTokenMissing) {
 		t.Fatalf("err = %v", err)

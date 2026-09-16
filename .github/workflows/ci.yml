@@ -175,7 +175,7 @@ jobs:
       - name: Security analysis
         if: needs.changes.outputs.full == 'true'
         run: |
-          gosec -quiet -fmt=json -exclude-dir=pkg/cloudflared ./... > "${RUNNER_TEMP}/gosec.json" || true
+          gosec -quiet -fmt=json -exclude-dir=plugins/cf-tunnel/internal/cloudflared ./... > "${RUNNER_TEMP}/gosec.json" || true
           node scripts/check-gosec-baseline.mjs "${RUNNER_TEMP}/gosec.json" scripts/gosec-baseline.json
 
       - name: Go coverage gate

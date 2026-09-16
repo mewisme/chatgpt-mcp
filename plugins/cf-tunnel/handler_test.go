@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"go.mewis.me/chatgpt-mcp/internal/runtimeplugin"
-	"go.mewis.me/chatgpt-mcp/pkg/cloudflared"
+	"go.mewis.me/chatgpt-mcp/plugins/cf-tunnel/internal/cloudflared"
 )
 
 func TestHandlerDescribeAndStartOrigin(t *testing.T) {

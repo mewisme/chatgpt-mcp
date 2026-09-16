@@ -42,6 +42,21 @@ func (h *Host) Get(id string) (*Session, bool) {
 	return session, session != nil
 }
 
+func (h *Host) IDs() []string {
+	if h == nil {
+		return nil
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	ids := make([]string, 0, len(h.sessions))
+	for id := range h.sessions {
+		if h.liveLocked(id) != nil {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
 func (h *Host) Shutdown(ctx context.Context, id string) error {
 	if h == nil {
 		return nil

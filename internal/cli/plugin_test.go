@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
+
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 )
 
@@ -91,5 +93,43 @@ func TestPluginConfigSetGetReset(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(configDir, "plugins", "config", "ponytail.json")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("reset left plugin config file")
+	}
+}
+
+func TestPluginLifecycleCommandsExposeScopeFlags(t *testing.T) {
+	for _, cmd := range []*cobra.Command{
+		pluginListCommand(), pluginInstallCommand(), pluginUninstallCommand(), pluginToggleCommand(true), pluginToggleCommand(false),
+		pluginUpdateCommand(), pluginRollbackCommand(), pluginPruneCommand(), pluginOutdatedCommand(), pluginVerifyCommand(),
+	} {
+		if cmd.Flags().Lookup("scope") == nil || cmd.Flags().Lookup("workspace") == nil {
+			t.Fatalf("%s is missing --scope/--workspace", cmd.Name())
+		}
+	}
+	for _, cmd := range []*cobra.Command{pluginSearchCommand(), pluginInfoCommand(), pluginRegistryListCommand(), pluginConfigListCommand()} {
+		if cmd.Flags().Lookup("scope") != nil || cmd.Flags().Lookup("workspace") != nil {
+			t.Fatalf("%s unexpectedly exposes --scope/--workspace", cmd.Name())
+		}
+	}
+}
+
+func TestPluginListRejectsGlobalScopeWithWorkspace(t *testing.T) {
+	root := newRootCommand()
+	root.SetOut(io.Discard)
+	root.SetErr(io.Discard)
+	root.SetArgs(testCommandArgs(t, "plugin", "list", "--scope", "global", "--workspace", "ws_x"))
+	_, err := root.ExecuteC()
+	if err == nil || !strings.Contains(err.Error(), "--scope global cannot be combined with --workspace") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestPluginListWorkspaceRequiresRegisteredWorkspace(t *testing.T) {
+	root := newRootCommand()
+	root.SetOut(io.Discard)
+	root.SetErr(io.Discard)
+	root.SetArgs(testCommandArgs(t, "plugin", "list", "--scope", "workspace"))
+	_, err := root.ExecuteC()
+	if err == nil || !strings.Contains(err.Error(), "specify --workspace") {
+		t.Fatalf("error = %v", err)
 	}
 }

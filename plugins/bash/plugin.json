@@ -1,10 +1,11 @@
 {
-  "schema": 1,
+  "schema": 2,
   "id": "bash",
   "name": "Bash Runtime",
   "publisher": "mewisme",
   "version": "1.0.1",
   "type": "runtime",
+  "scopes": ["global", "workspace"],
   "requires": {
     "chatgpt-mcp": ">=0.2.24"
   },

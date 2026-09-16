@@ -54,7 +54,10 @@ type PluginRegistryInfo struct {
 }
 
 func NewPluginService() (*PluginService, error) {
-	layout := pluginpkg.DefaultLayout()
+	return NewPluginServiceForLayout(pluginpkg.DefaultLayout())
+}
+
+func NewPluginServiceForLayout(layout pluginpkg.Layout) (*PluginService, error) {
 	store, err := pluginpkg.NewStore(layout, pluginpkg.RuntimeContext{CoreVersion: version.Version})
 	if err != nil {
 		return nil, err

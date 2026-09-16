@@ -1,10 +1,11 @@
 {
-  "schema": 1,
+  "schema": 2,
   "id": "admin-ui",
   "name": "Admin UI",
   "publisher": "mewisme",
   "version": "1.0.0",
   "type": "web-ui",
+  "scopes": ["global"],
   "requires": {
     "chatgpt-mcp": ">=0.2.25"
   },

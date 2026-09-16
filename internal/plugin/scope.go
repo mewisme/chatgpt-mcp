@@ -70,3 +70,7 @@ func (manifest Manifest) AllowsScope(scope PluginScope) bool {
 func (builtin Builtin) AllowedScopes() []PluginScope {
 	return clonePluginScopes(builtin.Scopes)
 }
+
+func (entry RegistryEntry) AllowedScopes() []PluginScope {
+	return clonePluginScopes(entry.Scopes)
+}

@@ -1,10 +1,11 @@
 {
-  "schema": 1,
+  "schema": 2,
   "id": "rtk",
   "name": "RTK Command Wrapper",
   "publisher": "mewisme",
   "version": "1.0.0",
   "type": "command-wrapper",
+  "scopes": ["global", "workspace"],
   "requires": {
     "chatgpt-mcp": ">=0.2.24"
   },

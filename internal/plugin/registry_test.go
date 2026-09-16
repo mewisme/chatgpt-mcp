@@ -1,6 +1,8 @@
 package plugin
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -38,6 +40,59 @@ func TestResolveAcrossRejectsAmbiguity(t *testing.T) {
 	resolved, err := ResolveAcross([]RegistrySnapshot{official, thirdParty}, "community", "bash", "")
 	if err != nil || resolved.Registry.Name != "community" {
 		t.Fatalf("qualified resolve = %#v, %v", resolved, err)
+	}
+}
+
+func TestRegistryRejectsInvalidScopes(t *testing.T) {
+	snapshot := testRegistrySnapshot("official", true)
+	entry := snapshot.Index.Plugins["bash"]
+	entry.Scopes = []PluginScope{"cluster"}
+	snapshot.Index.Plugins["bash"] = entry
+	if err := snapshot.Index.Validate(); err == nil {
+		t.Fatal("invalid registry scopes accepted")
+	}
+	entry.Scopes = []PluginScope{ScopeGlobal, ScopeGlobal}
+	snapshot.Index.Plugins["bash"] = entry
+	if err := snapshot.Index.Validate(); err == nil {
+		t.Fatal("duplicate registry scopes accepted")
+	}
+}
+
+func TestRegistryEntryWithoutScopesDefaultsToGlobal(t *testing.T) {
+	snapshot := testRegistrySnapshot("official", true)
+	if err := snapshot.Index.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	got := snapshot.Index.Plugins["bash"].AllowedScopes()
+	if len(got) != 1 || got[0] != ScopeGlobal {
+		t.Fatalf("implicit scopes = %#v", got)
+	}
+}
+
+func TestOfficialRegistryIndexDeclaresScopes(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "plugins", "registry", "index.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	index, err := ParseRegistryIndex(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[PluginID][]PluginScope{
+		"admin-ui": {ScopeGlobal},
+		"bash":     {ScopeGlobal, ScopeWorkspace},
+		"rtk":      {ScopeGlobal, ScopeWorkspace},
+	}
+	for id, scopes := range want {
+		got := index.Plugins[id].AllowedScopes()
+		if len(got) != len(scopes) {
+			t.Fatalf("%s scopes = %#v, want %#v", id, got, scopes)
+		}
+		for i := range scopes {
+			if got[i] != scopes[i] {
+				t.Fatalf("%s scopes = %#v, want %#v", id, got, scopes)
+			}
+		}
 	}
 }
 

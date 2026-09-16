@@ -1,6 +1,8 @@
 package plugin
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -143,6 +145,39 @@ func TestManifestCoreCompatibility(t *testing.T) {
 		}
 		if got != want {
 			t.Fatalf("CompatibleWithCore(%q) = %v, want %v", version, got, want)
+		}
+	}
+}
+
+func TestOfficialPluginManifestsDeclareIntendedScopes(t *testing.T) {
+	cases := []struct {
+		path   string
+		scopes []PluginScope
+	}{
+		{filepath.Join("..", "..", "plugins", "admin-ui", "plugin.json"), []PluginScope{ScopeGlobal}},
+		{filepath.Join("..", "..", "plugins", "bash", "plugin.json"), []PluginScope{ScopeGlobal, ScopeWorkspace}},
+		{filepath.Join("..", "..", "plugins", "rtk", "plugin.json"), []PluginScope{ScopeGlobal, ScopeWorkspace}},
+	}
+	for _, test := range cases {
+		data, err := os.ReadFile(test.path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		manifest, err := ParseManifest(data)
+		if err != nil {
+			t.Fatalf("%s: %v", test.path, err)
+		}
+		if manifest.Schema != ManifestSchemaV2 {
+			t.Fatalf("%s schema = %d, want %d", test.path, manifest.Schema, ManifestSchemaV2)
+		}
+		got := manifest.AllowedScopes()
+		if len(got) != len(test.scopes) {
+			t.Fatalf("%s scopes = %#v, want %#v", test.path, got, test.scopes)
+		}
+		for i := range test.scopes {
+			if got[i] != test.scopes[i] {
+				t.Fatalf("%s scopes = %#v, want %#v", test.path, got, test.scopes)
+			}
 		}
 	}
 }

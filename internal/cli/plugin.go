@@ -26,7 +26,18 @@ func pluginCommand() *cobra.Command {
 }
 
 func newPluginManager() (*pluginpkg.Manager, pluginpkg.Layout, error) {
-	layout := pluginpkg.DefaultLayout()
+	return newPluginManagerFor(pluginpkg.DefaultLayout())
+}
+
+func newPluginManagerFromCmd(cmd *cobra.Command) (*pluginpkg.Manager, pluginpkg.Layout, error) {
+	layout, err := application.ResolvePluginLayout(pluginScopeOptions(cmd))
+	if err != nil {
+		return nil, pluginpkg.Layout{}, err
+	}
+	return newPluginManagerFor(layout)
+}
+
+func newPluginManagerFor(layout pluginpkg.Layout) (*pluginpkg.Manager, pluginpkg.Layout, error) {
 	store, err := pluginpkg.NewStore(layout, pluginpkg.RuntimeContext{CoreVersion: version.Version})
 	if err != nil {
 		return nil, pluginpkg.Layout{}, err
@@ -34,6 +45,25 @@ func newPluginManager() (*pluginpkg.Manager, pluginpkg.Layout, error) {
 	pluginhost.Attach(store)
 	client := pluginpkg.RegistryClient{Layout: layout, UserAgent: "chatgpt-mcp/" + version.Version}
 	return &pluginpkg.Manager{Store: store, RegistryClient: client}, layout, nil
+}
+
+func addPluginScopeFlags(cmd *cobra.Command) {
+	cmd.Flags().String("scope", "", "plugin scope (global|workspace)")
+	cmd.Flags().String("workspace", "", "workspace id or path (implies --scope workspace)")
+}
+
+func pluginScopeOptions(cmd *cobra.Command) application.PluginScopeOptions {
+	scope, _ := cmd.Flags().GetString("scope")
+	workspaceRef, _ := cmd.Flags().GetString("workspace")
+	return application.PluginScopeOptions{Scope: scope, Workspace: workspaceRef}
+}
+
+func formatPluginScopes(scopes []pluginpkg.PluginScope) string {
+	parts := make([]string, 0, len(scopes))
+	for _, scope := range scopes {
+		parts = append(parts, string(scope))
+	}
+	return strings.Join(parts, ", ")
 }
 
 func pluginSearchCommand() *cobra.Command {
@@ -91,6 +121,7 @@ func pluginInfoCommand() *cobra.Command {
 			log.Detail("origin", pluginpkg.OriginBuiltin.Label())
 			log.Detail("version", version.Version)
 			log.Detail("type", string(builtin.Type))
+			log.Detail("scopes", formatPluginScopes(builtin.AllowedScopes()))
 			log.Detail("description", builtin.Description)
 			return nil
 		}
@@ -103,14 +134,15 @@ func pluginInfoCommand() *cobra.Command {
 		log.Detail("version", resolved.Version)
 		log.Detail("publisher", resolved.Publisher.Name)
 		log.Detail("type", resolved.Entry.Type)
+		log.Detail("scopes", formatPluginScopes(resolved.Entry.AllowedScopes()))
 		log.Detail("description", resolved.Entry.Description)
 		return nil
 	}}
 }
 
 func pluginListCommand() *cobra.Command {
-	return &cobra.Command{Use: "list", Aliases: []string{"ls"}, Short: "List installed plugins", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
-		manager, _, err := newPluginManager()
+	cmd := &cobra.Command{Use: "list", Aliases: []string{"ls"}, Short: "List installed plugins", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		manager, _, err := newPluginManagerFromCmd(cmd)
 		if err != nil {
 			return err
 		}
@@ -131,12 +163,14 @@ func pluginListCommand() *cobra.Command {
 		}
 		return nil
 	}}
+	addPluginScopeFlags(cmd)
+	return cmd
 }
 
 func pluginInstallCommand() *cobra.Command {
 	var portable bool
 	cmd := &cobra.Command{Use: "install <plugin>[@version]", Short: "Install and enable a signed plugin", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-		manager, _, err := newPluginManager()
+		manager, _, err := newPluginManagerFromCmd(cmd)
 		if err != nil {
 			return err
 		}
@@ -159,6 +193,7 @@ func pluginInstallCommand() *cobra.Command {
 		return nil
 	}}
 	cmd.Flags().BoolVar(&portable, "portable", false, "install a manifest-declared portable host dependency into plugin data")
+	addPluginScopeFlags(cmd)
 	return cmd
 }
 
@@ -227,7 +262,7 @@ func promptPluginHostInstall(cmd *cobra.Command, manager *pluginpkg.Manager, ref
 func pluginUninstallCommand() *cobra.Command {
 	var force bool
 	cmd := &cobra.Command{Use: "uninstall <plugin>", Short: "Disable and uninstall the active plugin version", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-		manager, _, err := newPluginManager()
+		manager, _, err := newPluginManagerFromCmd(cmd)
 		if err != nil {
 			return err
 		}
@@ -242,6 +277,7 @@ func pluginUninstallCommand() *cobra.Command {
 		return nil
 	}}
 	cmd.Flags().BoolVar(&force, "force", false, "uninstall even when active plugins depend on provided capabilities")
+	addPluginScopeFlags(cmd)
 	return cmd
 }
 
@@ -252,8 +288,8 @@ func pluginToggleCommand(enabled bool) *cobra.Command {
 		action = "enable"
 		traceName = "plugin.enable"
 	}
-	return &cobra.Command{Use: action + " <plugin>", Short: action + " an installed plugin", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-		manager, _, err := newPluginManager()
+	cmd := &cobra.Command{Use: action + " <plugin>", Short: action + " an installed plugin", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		manager, _, err := newPluginManagerFromCmd(cmd)
 		if err != nil {
 			return err
 		}
@@ -276,12 +312,14 @@ func pluginToggleCommand(enabled bool) *cobra.Command {
 		commandLogger(cmd).Success("PLUGIN", "plugin "+action+"d", "id", id)
 		return nil
 	}}
+	addPluginScopeFlags(cmd)
+	return cmd
 }
 
 func pluginUpdateCommand() *cobra.Command {
 	var all bool
 	cmd := &cobra.Command{Use: "update [plugin]", Short: "Update installed plugins to registry stable versions", Args: cobra.MaximumNArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-		manager, _, err := newPluginManager()
+		manager, _, err := newPluginManagerFromCmd(cmd)
 		if err != nil {
 			return err
 		}
@@ -316,12 +354,13 @@ func pluginUpdateCommand() *cobra.Command {
 		return nil
 	}}
 	cmd.Flags().BoolVar(&all, "all", false, "update all outdated plugins")
+	addPluginScopeFlags(cmd)
 	return cmd
 }
 
 func pluginRollbackCommand() *cobra.Command {
-	return &cobra.Command{Use: "rollback <plugin> [version]", Short: "Rollback to a retained signed plugin version", Args: cobra.RangeArgs(1, 2), RunE: func(cmd *cobra.Command, args []string) error {
-		manager, _, err := newPluginManager()
+	cmd := &cobra.Command{Use: "rollback <plugin> [version]", Short: "Rollback to a retained signed plugin version", Args: cobra.RangeArgs(1, 2), RunE: func(cmd *cobra.Command, args []string) error {
+		manager, _, err := newPluginManagerFromCmd(cmd)
 		if err != nil {
 			return err
 		}
@@ -343,13 +382,15 @@ func pluginRollbackCommand() *cobra.Command {
 		commandLogger(cmd).Success("PLUGIN", "plugin rolled back", "id", id, "version", result.Plugin.Manifest.Version)
 		return nil
 	}}
+	addPluginScopeFlags(cmd)
+	return cmd
 }
 
 func pluginPruneCommand() *cobra.Command {
 	var retain int
 	var pruneCache bool
 	cmd := &cobra.Command{Use: "prune [plugin]", Short: "Prune old plugin versions and optional cache", Args: cobra.MaximumNArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-		manager, _, err := newPluginManager()
+		manager, _, err := newPluginManagerFromCmd(cmd)
 		if err != nil {
 			return err
 		}
@@ -389,12 +430,13 @@ func pluginPruneCommand() *cobra.Command {
 	}}
 	cmd.Flags().IntVar(&retain, "retain", pluginpkg.DefaultRollbackRetention, "inactive versions to retain per active plugin")
 	cmd.Flags().BoolVar(&pruneCache, "cache", false, "remove plugin registry/download cache and stale extraction directories")
+	addPluginScopeFlags(cmd)
 	return cmd
 }
 
 func pluginOutdatedCommand() *cobra.Command {
-	return &cobra.Command{Use: "outdated", Short: "List installed plugins with newer stable versions", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
-		manager, _, err := newPluginManager()
+	cmd := &cobra.Command{Use: "outdated", Short: "List installed plugins with newer stable versions", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		manager, _, err := newPluginManagerFromCmd(cmd)
 		if err != nil {
 			return err
 		}
@@ -411,11 +453,13 @@ func pluginOutdatedCommand() *cobra.Command {
 		}
 		return nil
 	}}
+	addPluginScopeFlags(cmd)
+	return cmd
 }
 
 func pluginVerifyCommand() *cobra.Command {
-	return &cobra.Command{Use: "verify <plugin>", Short: "Verify installed plugin lock and manifest integrity", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-		manager, _, err := newPluginManager()
+	cmd := &cobra.Command{Use: "verify <plugin>", Short: "Verify installed plugin lock and manifest integrity", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		manager, _, err := newPluginManagerFromCmd(cmd)
 		if err != nil {
 			return err
 		}
@@ -429,6 +473,8 @@ func pluginVerifyCommand() *cobra.Command {
 		commandLogger(cmd).Success("PLUGIN", "plugin verified", "id", id)
 		return nil
 	}}
+	addPluginScopeFlags(cmd)
+	return cmd
 }
 
 func pluginConfigCommand() *cobra.Command {

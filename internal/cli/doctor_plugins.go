@@ -3,14 +3,56 @@ package cli
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
 
 	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
+	"go.mewis.me/chatgpt-mcp/internal/plugindev"
 	"go.mewis.me/chatgpt-mcp/internal/redact"
 	"go.mewis.me/chatgpt-mcp/internal/version"
 )
+
+func (d *doctorState) checkPluginLocalDev(_ context.Context) doctorResult {
+	ctx, err := plugindev.Detect()
+	if err != nil {
+		return doctorResult{Status: doctorWarn, Summary: "development plugin context is invalid", Error: redact.Text(err.Error())}
+	}
+	if !ctx.Enabled {
+		return doctorResult{Status: doctorSkip, Summary: "repository local-dev bootstrap is inactive"}
+	}
+	if d.store == nil {
+		return doctorResult{Status: doctorSkip, Summary: "plugin store unavailable"}
+	}
+	if !strings.Contains(d.store.Layout().ConfigRoot, filepath.Join(".cgm", "dev")) {
+		return doctorResult{Status: doctorSkip, Summary: "active plugin store is not the isolated local-dev store"}
+	}
+	details := []string{"store " + d.store.Layout().ConfigRoot, "doctor does not rebuild local-dev plugins"}
+	local := 0
+	for _, id := range sortedPluginIDs(d.lock) {
+		entry := d.lock.Plugins[id]
+		if entry.Registry != pluginpkg.RegistryLocalDev {
+			continue
+		}
+		local++
+		installed, err := d.store.Installed(id, entry.Version)
+		if err != nil {
+			details = append(details, string(id)+" missing")
+			continue
+		}
+		provenance, err := plugindev.ReadProvenance(installed)
+		if err != nil {
+			details = append(details, string(id)+" local-dev without provenance")
+			continue
+		}
+		details = append(details, string(id)+" local-dev "+provenance.SourceFingerprint)
+	}
+	if local == 0 {
+		return doctorResult{Status: doctorWarn, Summary: "development mode is active but no local-dev plugins are installed", Details: details, Hint: "run a plugin-using command such as cgm plugin list, or set CHATGPT_MCP_DEV_PLUGINS=rebuild"}
+	}
+	return doctorResult{Status: doctorPass, Summary: fmt.Sprintf("local-dev plugins inspected (%d)", local), Details: details, Hint: "set CHATGPT_MCP_DEV_PLUGINS=rebuild to rebuild; doctor does not repair"}
+}
 
 func (d *doctorState) checkPluginPayloads(ctx context.Context) doctorResult {
 	if d.store == nil {

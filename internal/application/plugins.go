@@ -226,7 +226,9 @@ func (service *PluginService) InstalledDetail(id pluginpkg.PluginID) (PluginDeta
 		}
 	}
 	verification := "verified installed state"
-	if verifyErr := service.Manager.Verify(context.Background(), id); verifyErr != nil {
+	if entry.Registry == pluginpkg.RegistryLocalDev {
+		verification = "local-dev"
+	} else if verifyErr := service.Manager.Verify(context.Background(), id); verifyErr != nil {
 		verification = "verification failed: " + verifyErr.Error()
 	}
 	instructions, _ := service.Manager.Store.InstructionResources(id)

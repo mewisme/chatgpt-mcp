@@ -135,6 +135,24 @@ func pluginInfoCommand() *cobra.Command {
 			log.Detail("description", builtin.Description)
 			return nil
 		}
+		if item, err := manager.CatalogPlugin(id); err == nil {
+			log.Detail("id", string(item.ID))
+			log.Detail("name", item.Installed.Manifest.Name)
+			log.Detail("version", item.Version)
+			log.Detail("registry", item.Registry)
+			log.Detail("publisher", item.Publisher)
+			if item.Registry == pluginpkg.RegistryLocalDev {
+				log.Detail("trust", "local-dev")
+				if provenance, err := plugindev.ReadProvenance(item.Installed); err == nil {
+					log.Detail("source_fingerprint", provenance.SourceFingerprint)
+				}
+			} else {
+				log.Detail("origin", item.Origin.Label())
+			}
+			log.Detail("type", string(item.Installed.Manifest.Type))
+			log.Detail("enabled", fmt.Sprintf("%t", item.Enabled))
+			return nil
+		}
 		resolved, err := manager.Resolve(cmd.Context(), args[0])
 		if err != nil {
 			return err
@@ -167,7 +185,11 @@ func pluginListCommand() *cobra.Command {
 			if item.Enabled {
 				state = "enabled"
 			}
-			log.Detail(string(item.ID), fmt.Sprintf("%s  %s  %s", item.Version, item.Origin.Label(), state))
+			origin := item.Origin.Label()
+			if item.Registry == pluginpkg.RegistryLocalDev {
+				origin = "local-dev"
+			}
+			log.Detail(string(item.ID), fmt.Sprintf("%s  %s  %s", item.Version, origin, state))
 		}
 		if len(items) == 0 {
 			log.Notice("PLUGIN", "plugin.list.empty", "No plugins installed")

@@ -74,6 +74,7 @@ func (d *doctorState) checks() []doctorCheck {
 		{ID: "storage.paths", Label: "storage", Section: "System", Requires: []string{"config.source"}, Run: d.checkStoragePaths},
 		{ID: "observability.events", Label: "runtime journal", Section: "System", Requires: []string{"storage.paths"}, Run: d.checkRuntimeJournal},
 		{ID: "plugin.lock", Label: "plugin lock", Section: "Plugins", Run: d.checkPluginLock},
+		{ID: "plugin.local-dev", Label: "dev plugins", Section: "Plugins", Requires: []string{"plugin.lock"}, Run: d.checkPluginLocalDev},
 		{ID: "plugin.payloads", Label: "plugin payloads", Section: "Plugins", Requires: []string{"plugin.lock"}, Run: d.checkPluginPayloads},
 		{ID: "plugin.desired", Label: "plugin desired", Section: "Plugins", Requires: []string{"plugin.lock"}, Run: d.checkPluginDesired},
 		{ID: "plugin.compatibility", Label: "plugin compatibility", Section: "Plugins", Requires: []string{"plugin.lock"}, Run: d.checkPluginCompatibility},

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -117,7 +118,34 @@ func Bootstrap(ctx Context) (plugin.Layout, error) {
 		return layout, err
 	}
 	defer func() { _ = lock.Release() }()
-	return layout, reconcile(ctx, layout)
+	err = reconcile(ctx, layout)
+	return layout, err
+}
+
+type Report struct {
+	Built  []string
+	Reused []string
+	Failed []string
+}
+
+func (report Report) log() {
+	if verboseDev() {
+		for _, id := range report.Reused {
+			fmt.Fprintf(os.Stderr, "DEV %s cached\n", id)
+		}
+		for _, id := range report.Built {
+			fmt.Fprintf(os.Stderr, "DEV %s rebuilt\n", id)
+		}
+	}
+	if len(report.Built) == 0 && len(report.Failed) == 0 {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "DEV core plugins: built %s; reused %d cached\n", strings.Join(report.Built, ", "), len(report.Reused))
+}
+
+func verboseDev() bool {
+	value := strings.ToLower(strings.TrimSpace(os.Getenv("CHATGPT_MCP_LOG")))
+	return value == "debug" || value == "verbose"
 }
 
 func reconcile(ctx Context, layout plugin.Layout) error {
@@ -130,81 +158,95 @@ func reconcile(ctx Context, layout plugin.Layout) error {
 		return fmt.Errorf("dev plugin install: %w", err)
 	}
 	platform := runtime.GOOS + "/" + runtime.GOARCH
+	report := Report{}
 	var firstRequired error
 	for _, spec := range specs {
 		if !spec.AllowsPlatform(platform) {
 			continue
 		}
-		if err := ensurePlugin(ctx, store, spec, platform); err != nil {
+		built, err := ensurePlugin(ctx, store, spec, platform)
+		if err != nil {
+			report.Failed = append(report.Failed, spec.ID)
 			if spec.Required && firstRequired == nil {
 				firstRequired = err
 			}
+			continue
+		}
+		if built {
+			report.Built = append(report.Built, spec.ID)
+		} else {
+			report.Reused = append(report.Reused, spec.ID)
 		}
 	}
+	report.log()
 	return firstRequired
 }
 
-func ensurePlugin(ctx Context, store *plugin.Store, spec CorePlugin, platform string) error {
+func ensurePlugin(ctx Context, store *plugin.Store, spec CorePlugin, platform string) (bool, error) {
 	fail := func(phase string, err error) error {
 		return fmt.Errorf("dev plugin %s %s failed: %w (set %s=rebuild to rebuild or %s=off to disable)", spec.ID, phase, err, EnvPlugins, EnvPlugins)
 	}
 	fingerprint, err := Fingerprint(ctx.Root, spec.ID, platform)
 	if err != nil {
-		return fail("discover", err)
+		return false, fail("discover", err)
 	}
 	cache, err := CacheDir(ctx.Root, spec.ID, platform, fingerprint)
 	if err != nil {
-		return fail("discover", err)
+		return false, fail("discover", err)
 	}
-	if ctx.SkipCache() || !Cached(cache, fingerprint) {
+	built := ctx.SkipCache() || !Cached(cache, fingerprint)
+	if built {
 		parent := filepath.Dir(cache)
 		stage, err := StageDir(parent)
 		if err != nil {
-			return fail("build", err)
+			return false, fail("build", err)
 		}
 		if err := pluginBuilder(ctx.Root, spec.ID, stage); err != nil {
 			_ = os.RemoveAll(stage)
-			return fail("build", err)
+			return false, fail("build", err)
 		}
 		if err := WriteCacheMarker(stage, fingerprint); err != nil {
 			_ = os.RemoveAll(stage)
-			return fail("build", err)
+			return false, fail("build", err)
 		}
 		if err := PromoteDir(stage, cache); err != nil {
-			return fail("build", err)
+			return false, fail("build", err)
 		}
 	}
 	manifest, extracted, err := extractCached(cache, spec.ID, platform)
 	if err != nil {
-		return fail("verify", err)
+		return false, fail("verify", err)
 	}
 	defer os.RemoveAll(extracted)
 	if current, err := store.Installed(manifest.ID, manifest.Version); err == nil && !ctx.SkipCache() {
 		if provenance, err := ReadProvenance(current); err == nil && provenance.SourceFingerprint == fingerprint {
 			if err := store.ActivateWithState(manifest.ID, manifest.Version, LocalDevTrust(manifest.Publisher), spec.Enabled || spec.Required); err != nil {
-				return fail("activate", err)
+				return false, fail("activate", err)
 			}
-			return nil
+			return false, nil
 		}
 	}
 	if err := replaceInstalled(store, manifest.ID); err != nil {
-		return fail("install", err)
+		return false, fail("install", err)
 	}
 	installed, err := store.Install(manifest, extracted)
 	if err != nil {
-		return fail("install", err)
+		return false, fail("install", err)
 	}
 	if err := store.ActivateWithState(manifest.ID, manifest.Version, LocalDevTrust(manifest.Publisher), spec.Enabled || spec.Required); err != nil {
-		return fail("activate", err)
+		return false, fail("activate", err)
 	}
 	digest, err := fileDigest(filepath.Join(cache, manifest.Platforms[platform].Artifact))
 	if err != nil {
 		digest = fingerprint
 	}
-	return WriteProvenance(installed, Provenance{
+	if err := WriteProvenance(installed, Provenance{
 		Schema: provenanceSchema, Origin: plugin.RegistryLocalDev, RepoRoot: ctx.Root, PluginID: spec.ID,
 		SourceFingerprint: fingerprint, ArtifactDigest: digest,
-	})
+	}); err != nil {
+		return false, fail("install", err)
+	}
+	return built, nil
 }
 
 func replaceInstalled(store *plugin.Store, id plugin.PluginID) error {
@@ -264,6 +306,9 @@ func workflowBuild(repoRoot, id, output string) error {
 	cmd.Stderr = os.Stderr
 	cmd.Env = append(os.Environ(), EnvPlugins+"="+ModeOff, pluginbuild.EnvUPX+"="+pluginbuild.EnvUPXOff)
 	if err := cmd.Run(); err != nil {
+		if errors.Is(err, exec.ErrNotFound) || strings.Contains(err.Error(), "executable file not found") {
+			return fmt.Errorf("node is required to build plugin %s", id)
+		}
 		return err
 	}
 	return nil

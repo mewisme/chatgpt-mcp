@@ -52,6 +52,7 @@ var doctorStandaloneChecks = []string{
 	"service.user",
 	"service.system",
 	"runtime.control",
+	"plugin.local-dev",
 	"network.plan",
 	"network.admin",
 	"auth.mcp",

@@ -182,11 +182,13 @@ func (page *TunnelAdminsPage) View(width, height int) string {
 		page.editor.Resize(width, height)
 		return page.editor.View()
 	}
-	content := page.listView(width, height)
+	var content string
 	if page.resourceID != "" {
 		page.detail.SetFeedback(page.notice, page.err)
 		page.detail.Resize(width, height)
 		content = page.detail.View()
+	} else {
+		content = page.listView(width, height)
 	}
 	if page.confirmID != "" {
 		modalWidth := overlayWidth(width, 64)
@@ -452,15 +454,13 @@ func (page *TunnelAdminsPage) finishCommand(msg tunnelAdminResultMsg) tea.Cmd {
 }
 
 func (page *TunnelAdminsPage) acceptAdminEditorSuccess() {
-	if page == nil {
+	if page == nil || page.editor == nil {
 		return
 	}
-	if page.editor != nil {
-		page.editor.Accept()
-		page.editor.SetSubmitting(false)
-	}
-	page.editor = nil
-	page.form = nil
+	// Keep the editor mounted until navigation replaces the page. Clearing it
+	// left create/update routes with a nil browser and panicked in listView.
+	page.editor.Accept()
+	page.editor.SetSubmitting(false)
 }
 
 func (page *TunnelAdminsPage) updateConfirm(msg tea.KeyPressMsg) tea.Cmd {

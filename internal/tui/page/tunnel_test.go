@@ -634,8 +634,12 @@ func TestTunnelAdminsPageCreateSuccessClearsDirtyBeforeNavigate(t *testing.T) {
 		item:    application.TunnelAdminProfile{ID: "personal", OrganizationID: "org_demo", ManageAccess: true, KeyConfigured: true},
 		count:   2,
 	})
-	if cmd == nil || page.Dirty() || page.Submitting() || page.editor != nil || page.form != nil {
-		t.Fatalf("success left dirty state cmd=%v dirty=%t submitting=%t editor=%v form=%v", cmd != nil, page.Dirty(), page.Submitting(), page.editor != nil, page.form != nil)
+	if cmd == nil || page.Dirty() || page.Submitting() || page.editor == nil || page.form == nil {
+		t.Fatalf("success left bad state cmd=%v dirty=%t submitting=%t editor=%v form=%v", cmd != nil, page.Dirty(), page.Submitting(), page.editor != nil, page.form != nil)
+	}
+	view := ansi.Strip(page.View(80, 24))
+	if strings.Contains(view, "panic") || view == "" {
+		t.Fatalf("post-success view=%q", view)
 	}
 	if !strings.Contains(page.notice, "personal") || !strings.Contains(page.notice, "verified") {
 		t.Fatalf("notice=%q", page.notice)
@@ -719,8 +723,11 @@ func TestTunnelAdminsPageDetailVerifyRemoveAndUpdateSuccess(t *testing.T) {
 		item:    application.TunnelAdminProfile{ID: "work", WorkspaceID: "ws_updated", ManageAccess: true, KeyConfigured: true},
 		count:   1,
 	})
-	if cmd == nil || edit.Dirty() || edit.editor != nil {
-		t.Fatalf("update success cmd=%v dirty=%t editor=%v", cmd != nil, edit.Dirty(), edit.editor != nil)
+	if cmd == nil || edit.Dirty() || edit.Submitting() || edit.editor == nil {
+		t.Fatalf("update success cmd=%v dirty=%t submitting=%t editor=%v", cmd != nil, edit.Dirty(), edit.Submitting(), edit.editor != nil)
+	}
+	if view := ansi.Strip(edit.View(80, 24)); view == "" {
+		t.Fatal("update success view empty")
 	}
 	_, cancel := edit.Update(component.EditorCancelMsg{})
 	nav, ok := cancel().(NavigateMsg)

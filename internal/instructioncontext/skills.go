@@ -1,12 +1,23 @@
 package instructioncontext
 
 import (
+	"path/filepath"
 	"sort"
 	"strings"
 
+	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/instructionpolicy"
 	"go.mewis.me/chatgpt-mcp/internal/skills"
 )
+
+func nativeGlobalPath(path string) bool {
+	root := strings.TrimSpace(configformat.RootPath())
+	if root == "" || strings.TrimSpace(path) == "" {
+		return false
+	}
+	relative, err := filepath.Rel(filepath.Clean(root), filepath.Clean(path))
+	return err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) && !filepath.IsAbs(relative)
+}
 
 var skillSourcePriority = map[string]int{
 	".agents":  0,
@@ -31,7 +42,7 @@ func filterSkillSummaries(values []skills.Skill, err error) ([]skills.Skill, err
 		return nil, err
 	}
 	sort.SliceStable(values, func(i, j int) bool {
-		left, right := skillPriority(values[i].Source), skillPriority(values[j].Source)
+		left, right := skillPriority(values[i]), skillPriority(values[j])
 		if left != right {
 			return left < right
 		}
@@ -53,8 +64,14 @@ func filterSkillSummaries(values []skills.Skill, err error) ([]skills.Skill, err
 	return result, nil
 }
 
-func skillPriority(source string) int {
-	if priority, ok := skillSourcePriority[source]; ok {
+func skillPriority(skill skills.Skill) int {
+	if skill.Source == skills.NativeSource {
+		if nativeGlobalPath(skill.Path) {
+			return len(skillSourcePriority) + 1
+		}
+		return -1
+	}
+	if priority, ok := skillSourcePriority[skill.Source]; ok {
 		return priority
 	}
 	return len(skillSourcePriority)

@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"go.mewis.me/chatgpt-mcp/internal/checkpoint"
+	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/instructioncontext"
 	"go.mewis.me/chatgpt-mcp/internal/instructionpolicy"
 	"go.mewis.me/chatgpt-mcp/internal/memory"
@@ -114,7 +115,7 @@ func RegisterContextTools(registry *Registry, workspaces *workspace.Manager, che
 		}, handler)
 	}
 
-	register("list_skills", "List Skills", "List project skills and activation descriptions across supported agent providers.", workspaceOnlySchema(``), `{"type":"object","properties":{"skills":{"type":"array","items":{"type":"object","additionalProperties":true}},"count":{"type":"integer"}},"required":["skills","count"],"additionalProperties":false}`, RiskRead, func(_ context.Context, args map[string]any) (Result, error) {
+	register("list_skills", "List Skills", "List project, native CGM, and provider skills with activation descriptions.", workspaceOnlySchema(``), `{"type":"object","properties":{"skills":{"type":"array","items":{"type":"object","additionalProperties":true}},"count":{"type":"integer"}},"required":["skills","count"],"additionalProperties":false}`, RiskRead, func(_ context.Context, args map[string]any) (Result, error) {
 		item, err := workspaceFromArgs(workspaces, args)
 		if err != nil {
 			return Result{}, err
@@ -153,8 +154,8 @@ func RegisterContextTools(registry *Registry, workspaces *workspace.Manager, che
 		if err != nil {
 			return Result{}, err
 		}
-		if _, err := workspaces.ResolvePath(item.ID, item.Path, value.Skill.Path, true); err != nil && !withinDirectory(home, value.Skill.Path) {
-			return Result{}, fmt.Errorf("skill path: %w", err)
+		if !instructionPathAllowed(workspaces, item.ID, item.Path, home, value.Skill.Path) {
+			return Result{}, fmt.Errorf("skill path is outside trusted instruction roots")
 		}
 		return JSONResult(value), nil
 	})
@@ -381,7 +382,7 @@ func RegisterContextTools(registry *Registry, workspaces *workspace.Manager, che
 		return JSONResult(OptimizeMemoryResult{Groups: analysis.Groups, BeforeBytes: analysis.BeforeBytes, CandidateSavingsBytes: analysis.CandidateSavingsBytes, LegacyFormat: analysis.LegacyFormat, OptimizationRecommended: analysis.OptimizationRecommended, DryRun: true}), nil
 	})
 
-	register("load_path_rules", "Load Path Rules", "Load path-scoped rules from .claude/.claudes/.agents/.cursor/.codex rule directories.", `{"type":"object","properties":{"workspace_id":{"type":"string"},"path":{"type":"string"}},"required":["workspace_id","path"],"additionalProperties":false}`, `{"type":"object","properties":{"path":{"type":"string"},"rules":{"type":"array","items":{"type":"object","additionalProperties":true}},"count":{"type":"integer"}},"required":["path","rules","count"],"additionalProperties":false}`, RiskRead, func(_ context.Context, args map[string]any) (Result, error) {
+	register("load_path_rules", "Load Path Rules", "Load path-scoped rules from native CGM and .claude/.claudes/.agents/.cursor/.codex rule directories.", `{"type":"object","properties":{"workspace_id":{"type":"string"},"path":{"type":"string"}},"required":["workspace_id","path"],"additionalProperties":false}`, `{"type":"object","properties":{"path":{"type":"string"},"rules":{"type":"array","items":{"type":"object","additionalProperties":true}},"count":{"type":"integer"}},"required":["path","rules","count"],"additionalProperties":false}`, RiskRead, func(_ context.Context, args map[string]any) (Result, error) {
 		item, cwd, err := workspaceLocation(workspaces, args)
 		if err != nil {
 			return Result{}, err
@@ -404,12 +405,19 @@ func RegisterContextTools(registry *Registry, workspaces *workspace.Manager, che
 			return Result{}, err
 		}
 		for _, rule := range values {
-			if _, err := workspaces.ResolvePath(item.ID, item.Path, rule.Path, true); err != nil && !withinDirectory(home, rule.Path) {
-				return Result{}, fmt.Errorf("rule path: %w", err)
+			if !instructionPathAllowed(workspaces, item.ID, item.Path, home, rule.Path) {
+				return Result{}, fmt.Errorf("rule path is outside trusted instruction roots")
 			}
 		}
 		return JSONResult(PathRulesResult{Path: target, Rules: values, Count: len(values)}), nil
 	})
+}
+
+func instructionPathAllowed(workspaces *workspace.Manager, workspaceID, workspaceRoot, home, path string) bool {
+	if _, err := workspaces.ResolvePath(workspaceID, workspaceRoot, path, true); err == nil {
+		return true
+	}
+	return withinDirectory(home, path) || withinDirectory(configformat.RootPath(), path)
 }
 
 func withinDirectory(root, path string) bool {

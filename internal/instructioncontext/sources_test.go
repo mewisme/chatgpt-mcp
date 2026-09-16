@@ -6,9 +6,11 @@ import (
 	"testing"
 
 	"go.mewis.me/chatgpt-mcp/internal/instructionpolicy"
+	"go.mewis.me/chatgpt-mcp/internal/testutil"
 )
 
 func TestDiscoverUserSourcesOnlyReturnsDetectedResources(t *testing.T) {
+	testutil.UseConfigRoot(t, t.TempDir())
 	home := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0755); err != nil {
 		t.Fatal(err)
@@ -33,6 +35,7 @@ func TestDiscoverUserSourcesOnlyReturnsDetectedResources(t *testing.T) {
 }
 
 func TestDiscoverUserSourcesKeepsDetectedDisabledResourceVisible(t *testing.T) {
+	testutil.UseConfigRoot(t, t.TempDir())
 	home := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0755); err != nil {
 		t.Fatal(err)

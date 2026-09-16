@@ -10,9 +10,11 @@ import (
 
 	gitutil "go.mewis.me/chatgpt-mcp/internal/git"
 	"go.mewis.me/chatgpt-mcp/internal/memory"
+	"go.mewis.me/chatgpt-mcp/internal/testutil"
 )
 
 func TestBuildAssemblesInstructionContext(t *testing.T) {
+	testutil.UseConfigRoot(t, t.TempDir())
 	root := t.TempDir()
 	home := t.TempDir()
 	memoryRoot := t.TempDir()
@@ -78,6 +80,7 @@ func TestBuildRejectsProjectRootOutsideWorkspaceRoots(t *testing.T) {
 }
 
 func TestBuildSkipsOptionalCollectors(t *testing.T) {
+	testutil.UseConfigRoot(t, t.TempDir())
 	root := t.TempDir()
 	writeInstructionFile(t, filepath.Join(root, "AGENTS.md"), "project instruction")
 	writeSkillFile(t, root, ".agents", "release", "release", "Release workflow", "body")
@@ -103,6 +106,7 @@ func TestBuildSkipsOptionalCollectors(t *testing.T) {
 }
 
 func TestBuildLimitsFinalInstructions(t *testing.T) {
+	testutil.UseConfigRoot(t, t.TempDir())
 	root := t.TempDir()
 	writeInstructionFile(t, filepath.Join(root, "AGENTS.md"), strings.Repeat("instruction ", 500))
 	value, err := Build(context.Background(), BuildOptions{

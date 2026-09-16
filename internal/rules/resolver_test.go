@@ -4,6 +4,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"go.mewis.me/chatgpt-mcp/internal/instructionpolicy"
+	"go.mewis.me/chatgpt-mcp/internal/testutil"
 )
 
 func TestLoadRulesAcrossProviders(t *testing.T) {
@@ -45,6 +48,33 @@ func TestAlwaysApplyRule(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(values) != 1 || !values[0].AlwaysApply {
+		t.Fatalf("rules = %#v", values)
+	}
+}
+
+func TestLoadNativeCGMRules(t *testing.T) {
+	configDir := t.TempDir()
+	testutil.UseConfigRoot(t, configDir)
+	workspace := t.TempDir()
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(workspace, ".cgm", "rules"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, ".cgm", "rules", "typescript.md"), []byte("---\nglobs: [\"**/*.ts\"]\n---\nWorkspace TypeScript"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(configDir, "rules"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "rules", "always.md"), []byte("---\nalwaysApply: true\n---\nGlobal always"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(workspace, "src", "app.ts")
+	values, err := LoadForFileWithUser(workspace, target, home, instructionpolicy.DefaultConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(values) != 2 {
 		t.Fatalf("rules = %#v", values)
 	}
 }

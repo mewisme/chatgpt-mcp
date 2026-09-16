@@ -33,7 +33,7 @@ func filterUnconditionalRules(all []rules.Rule, err error) ([]rules.Rule, error)
 		return nil, err
 	}
 	sort.SliceStable(all, func(i, j int) bool {
-		left, right := rulePriority(all[i].Source), rulePriority(all[j].Source)
+		left, right := rulePriority(all[i]), rulePriority(all[j])
 		if left != right {
 			return left < right
 		}
@@ -55,8 +55,14 @@ func filterUnconditionalRules(all []rules.Rule, err error) ([]rules.Rule, error)
 	return filtered, nil
 }
 
-func rulePriority(source string) int {
-	if priority, ok := ruleSourcePriority[source]; ok {
+func rulePriority(rule rules.Rule) int {
+	if rule.Source == rules.NativeSource {
+		if nativeGlobalPath(rule.Path) {
+			return len(ruleSourcePriority) + 1
+		}
+		return -1
+	}
+	if priority, ok := ruleSourcePriority[rule.Source]; ok {
 		return priority
 	}
 	return len(ruleSourcePriority)

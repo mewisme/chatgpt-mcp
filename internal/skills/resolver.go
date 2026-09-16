@@ -7,8 +7,12 @@ import (
 	"sort"
 	"strings"
 
+	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/instructionpolicy"
+	"go.mewis.me/chatgpt-mcp/internal/workspacestate"
 )
+
+const NativeSource = ".cgm"
 
 var skillRoots = []struct {
 	Relative string
@@ -22,11 +26,11 @@ var skillRoots = []struct {
 }
 
 func Discover(workspaceRoot string) ([]Skill, error) {
-	return discoverAt(workspaceRoot, nil)
+	return discoverAt(workspaceRoot, nil, workspacestate.New(workspaceRoot).SkillsRoot())
 }
 
 func DiscoverUser(home string, policy instructionpolicy.Config) ([]Skill, error) {
-	return discoverAt(home, func(source string) bool { return policy.Enabled(source, instructionpolicy.ResourceSkills) })
+	return discoverAt(home, func(source string) bool { return policy.Enabled(source, instructionpolicy.ResourceSkills) }, filepath.Join(configformat.RootPath(), "skills"))
 }
 
 func DiscoverWithUser(workspaceRoot, home string, policy instructionpolicy.Config) ([]Skill, error) {
@@ -52,9 +56,12 @@ func DiscoverWithUser(workspaceRoot, home string, policy instructionpolicy.Confi
 	return result, nil
 }
 
-func discoverAt(rootPath string, enabled func(string) bool) ([]Skill, error) {
+func discoverAt(rootPath string, enabled func(string) bool, nativeDir string) ([]Skill, error) {
 	result := make([]Skill, 0)
 	seen := map[string]bool{}
+	if nativeDir != "" && (enabled == nil || enabled(NativeSource)) {
+		walkSkills(nativeDir, NativeSource, 0, &result, seen)
+	}
 	for _, root := range skillRoots {
 		if enabled != nil && !enabled(root.Source) {
 			continue

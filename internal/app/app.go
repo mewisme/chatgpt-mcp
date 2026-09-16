@@ -13,6 +13,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
 	"go.mewis.me/chatgpt-mcp/internal/mcp"
+	"go.mewis.me/chatgpt-mcp/internal/notification"
 	mcpoauth "go.mewis.me/chatgpt-mcp/internal/oauth"
 	"go.mewis.me/chatgpt-mcp/internal/tools"
 	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
@@ -22,21 +23,22 @@ import (
 )
 
 type App struct {
-	Config       *config.RuntimeStore
-	MCP          *mcp.HTTPRuntime
-	Upstream     *upstream.Manager
-	Tools        *tools.Runtime
-	Activity     *activity.Stream
-	Tunnels      *tunnel.Manager
-	Tunnel       *tunnel.Client
-	Logger       *logger.Logger
-	OAuth        *mcpoauth.Store
-	OAuthFlows   *mcpoauth.FlowManager
-	runtimeCtx   context.Context
-	trace        tracepkg.Observer
-	running      bool
-	bootstrap    sync.Once
-	bootstrapErr error
+	Config        *config.RuntimeStore
+	MCP           *mcp.HTTPRuntime
+	Upstream      *upstream.Manager
+	Tools         *tools.Runtime
+	Activity      *activity.Stream
+	Tunnels       *tunnel.Manager
+	Tunnel        *tunnel.Client
+	Logger        *logger.Logger
+	OAuth         *mcpoauth.Store
+	OAuthFlows    *mcpoauth.FlowManager
+	Notifications *notification.Service
+	runtimeCtx    context.Context
+	trace         tracepkg.Observer
+	running       bool
+	bootstrap     sync.Once
+	bootstrapErr  error
 }
 
 func New(cfg config.Config) (*App, error) {

@@ -5,6 +5,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
 	"go.mewis.me/chatgpt-mcp/internal/mcp"
+	"go.mewis.me/chatgpt-mcp/internal/notification"
 	"go.mewis.me/chatgpt-mcp/internal/telemetry"
 	"go.mewis.me/chatgpt-mcp/internal/tools"
 	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
@@ -39,6 +40,12 @@ func (a *App) Bootstrap() error {
 		}
 		telemetry.AttachTools(a.Tools, a.Activity, a.Logger)
 		telemetry.AttachApprovals(a.Tools.Approvals, a.Activity, a.Logger)
+		if a.Notifications == nil {
+			a.Notifications = notification.New(notification.Options{Log: a.Logger, Workspaces: a.Tools.Workspaces})
+		}
+		if a.Tools.Approvals != nil {
+			a.Notifications.Start(a.Tools.Approvals.Events())
+		}
 		a.Upstream = a.Tools.Upstream
 		a.syncMCPHTTP(a.Config.Snapshot().Server.Enabled)
 		a.attachTunnelLifecycle()

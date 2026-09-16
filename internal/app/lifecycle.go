@@ -89,6 +89,9 @@ func (a *App) Start(ctx context.Context) error {
 
 func (a *App) Stop() error {
 	span := tracepkg.StartObserver(a.trace, "APP", "app.runtime.stop", "Stopping application runtime")
+	if a.Notifications != nil {
+		a.Notifications.Stop()
+	}
 	if a.MCP != nil {
 		subscriptionsSpan := tracepkg.StartObserver(a.trace, "APP", "app.mcp.subscriptions.close", "Closing MCP subscriptions")
 		if a.Logger != nil {

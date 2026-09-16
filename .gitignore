@@ -1,4 +1,5 @@
 apply-*
+/dist/
 /internal/web/dist/
 /plugins/admin-ui/coverage/
 .agents/

@@ -47,6 +47,14 @@ import {
   type Workspace,
 } from "@/lib/api"
 
+async function loadConfigurablePlugins(scope: "global" | "workspace", workspaceID = "") {
+  const plugins = await adminApi.plugins(scope === "workspace" ? "workspace" : "global", workspaceID || undefined)
+  const configurable = plugins.filter((item) => item.lifecycle.configure)
+  return Promise.all(
+    configurable.map((item) => adminApi.pluginConfig(item.id, scope, workspaceID || undefined))
+  )
+}
+
 export function SettingsPage() {
   const [config, setConfig] = useState<PublicConfig | null>(null)
   const [savedConfig, setSavedConfig] = useState<PublicConfig | null>(null)
@@ -79,14 +87,6 @@ export function SettingsPage() {
       })
       .catch((value) => setError(errorText(value)))
   }, [])
-
-  async function loadConfigurablePlugins(scope: "global" | "workspace", workspaceID = "") {
-    const plugins = await adminApi.plugins(scope === "workspace" ? "workspace" : "global", workspaceID || undefined)
-    const configurable = plugins.filter((item) => item.lifecycle.configure)
-    return Promise.all(
-      configurable.map((item) => adminApi.pluginConfig(item.id, scope, workspaceID || undefined))
-    )
-  }
 
   async function selectPluginScope(scope: "global" | "workspace", workspaceID = "") {
     setPluginScope(scope)

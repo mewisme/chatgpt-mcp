@@ -4,6 +4,8 @@ Official static Admin UI bundle for ChatGPT MCP.
 
 The plugin provides `web-ui/admin` only. The core process continues to own the admin listener, authentication, API routes, activity endpoints, and security headers. This plugin contains no backend handlers and requests no runtime permissions.
 
+Settings can reveal, copy, and rotate the Direct MCP HTTP token through Admin-authenticated `/api/auth/mcp-token`. Config GET never includes that plaintext. Tunnel runtime/admin keys remain separate.
+
 React source, Vite/Tailwind/shadcn configuration, frontend tests, and the production `dist/` live in this directory. The release workflow builds that frontend, packages `dist/` as one deterministic platform-independent ZIP, computes its SHA-256 digest, and publishes the signed manifest and artifact to the official plugin marketplace.
 
 ## Requirements

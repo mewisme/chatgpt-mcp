@@ -32,7 +32,8 @@ The runtime API key is only for the tunnel transport. It is not used to call a l
 | Tunnel ID (`tunnel_...`) | No | Selects the OpenAI-hosted tunnel |
 | Runtime API key (`sk-...`) | Yes | Lets one local tunnel instance use its OpenAI tunnel |
 | Platform Admin API key | Yes | Stored in an admin profile for management; never used as the runtime credential |
-| MCP/Admin tokens | Yes | Authenticate direct local/network endpoints when those endpoints are enabled |
+| Direct MCP HTTP token | Yes | Authenticates direct local `/mcp` HTTP only. Not used by Secure MCP Tunnel. Reuse it when adding this MCP server to ChatGPT. |
+| Admin token | Yes | Authenticates Admin API/UI. Independent of Direct MCP HTTP and tunnel keys. |
 
 Runtime and management credentials remain separate. Multiple admin profiles may coexist, and each local tunnel instance may reference the profile that discovered/managed it while keeping its own runtime key.
 
@@ -208,6 +209,7 @@ Keep `chatgpt-mcp` running during discovery and inspect `cgm tunnel status` plus
 - Do not expose the local MCP HTTP port publicly just to use Secure MCP Tunnel.
 - Do not use an OpenAI Admin API key as the long-lived runtime key.
 - Do not paste the tunnel runtime key into the ChatGPT app's normal auth field.
+- Do not use the Direct MCP HTTP token as a tunnel runtime or admin key. Secure MCP Tunnel neither requires nor accepts it.
 - Do not commit runtime keys, Direct MCP HTTP tokens, Admin tokens, or exported secrets.
 - Do not grant `Manage` to the runtime key unless the same principal genuinely needs tunnel administration.
 

@@ -14,7 +14,7 @@ Foreground actions show the command that should be run after leaving the TUI rat
 
 ## Authentication
 
-Runtime exposes MCP/admin authentication enable/disable and token rotation actions. Rotated plaintext tokens are intentionally treated as one-time sensitive output. Persisted hashes/secrets are not displayed later in Config or Runtime details.
+Runtime exposes Direct MCP HTTP and admin authentication enable/disable, plus Direct MCP HTTP token reveal/copy/rotate. The Direct MCP HTTP token is stored encrypted and can be shown again; reuse it when adding this MCP server to ChatGPT. Admin rotation still treats the replacement plaintext as one-time output. Persisted hashes are not displayed in Config or Runtime details. Legacy hash-only Direct MCP HTTP tokens need one rotate before reveal/copy work.
 
 ## MCP HTTP transport
 

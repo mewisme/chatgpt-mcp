@@ -466,7 +466,10 @@ cgm config list --toml
 
 ```bash
 cgm auth status
-cgm auth mcp create
+cgm auth mcp status
+cgm auth mcp show
+cgm auth mcp copy
+cgm auth mcp rotate
 cgm auth admin create
 cgm auth mcp enable
 cgm auth mcp disable
@@ -476,7 +479,9 @@ cgm auth admin disable
 
 Direct MCP HTTP authentication protects `/mcp` only. `cgm mcp stdio` does not use HTTP bearer authentication. `cgm mcp http` uses the Direct MCP HTTP token when `auth.mcp_enabled` is true. Secure MCP Tunnel uses separate credentials and is unaffected.
 
-Reuse the Direct MCP HTTP token when adding this MCP server to ChatGPT. You do not need to generate a new token for each connection.
+Reuse the Direct MCP HTTP token when adding this MCP server to ChatGPT. You do not need to generate a new token for each connection. `cgm auth mcp show` and `cgm auth mcp copy` reuse the stored token; `cgm auth mcp rotate` replaces it. `cgm auth mcp create` remains as a deprecated alias for rotate.
+
+Legacy hash-only Direct MCP HTTP tokens are configured but not revealable until one rotate writes the encrypted secret.
 
 Use subcommand help for enable/disable/rotation options exposed by the current binary:
 

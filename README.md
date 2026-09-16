@@ -144,6 +144,8 @@ See [MCP clients and upstream servers](docs/mcp.md).
 
 `chatgpt-mcp` provides an application-level workspace and control-plane boundary, not a kernel sandbox. Paths are canonicalized, symlink escapes are rejected, trusted control-plane mutations are separated from ordinary workspace operations, and sensitive managed credentials are not stored as plaintext structured config.
 
+Authentication uses three independent credentials: the **Admin token** for Admin API/UI, the **Direct MCP HTTP token** for local `/mcp` only (reusable across ChatGPT configurations, stored encrypted and revealable), and **tunnel runtime/admin keys** for OpenAI Secure MCP Tunnel. Direct MCP HTTP authentication does not apply to tunnel traffic.
+
 If you need isolation from deliberately hostile native code running as the same OS user, use an OS sandbox, container/VM, or separate operating-system identity.
 
 Read [Security](docs/security.md) before widening network exposure or filesystem access.

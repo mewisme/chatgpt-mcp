@@ -149,17 +149,27 @@ If stronger isolation is required, provide it externally with an OS sandbox, VM/
 
 ## Authentication
 
-MCP and Admin endpoint authentication are distinct policies. Direct MCP HTTP authentication protects `/mcp` only; Secure MCP Tunnel uses separate credentials and is unaffected.
+There are three independent credentials:
+
+| Credential | Protects | Recoverable? |
+| --- | --- | --- |
+| Admin token | Admin API / Admin UI | No — hash only; rotate to replace |
+| Direct MCP HTTP token | Direct `/mcp` HTTP only | Yes — encrypted secret store; `cgm auth mcp show` / copy |
+| Tunnel runtime/admin keys | OpenAI Secure MCP Tunnel | Separate from Direct MCP HTTP and Admin tokens |
+
+Direct MCP HTTP authentication does not apply to Secure MCP Tunnel. Tunnel traffic neither requires nor accepts the Direct MCP HTTP token.
 
 ```bash
 cgm auth status
-cgm auth mcp create
+cgm auth mcp show
+cgm auth mcp copy
+cgm auth mcp rotate
 cgm auth admin create
 ```
 
-Direct authenticated endpoints expect their own credentials. The OpenAI Secure MCP Tunnel runtime API key is separate and must not be confused with a Direct MCP HTTP or Admin bearer token.
+Reuse the Direct MCP HTTP token when adding this MCP server to ChatGPT; do not rotate it just to add the server again. Protected generic `cgm mcp http` uses the same token as managed `/mcp`.
 
-Protected generic `cgm mcp http` uses the Direct MCP HTTP token. Reuse that token when adding this MCP server to ChatGPT; a new token is not required for each ChatGPT configuration.
+Installations that still have only `auth.mcp_token_hash` (no encrypted secret) are configured but not revealable until one `cgm auth mcp rotate`.
 
 Disabling authentication on an enabled HTTP endpoint requires the corresponding explicit loopback acknowledgement and remains restricted by exposure validation. Prefer authenticated endpoints.
 

@@ -67,7 +67,7 @@ Boolean token-authentication switch for the admin HTTP endpoint. Non-loopback ex
 
 ### `auth.mcp_token_hash` — Direct MCP HTTP token
 
-Read-only, sensitive managed credential hash. The raw token is never exposed through config views. Reuse this token when adding this MCP server to ChatGPT. Manage it with `cgm auth mcp create` rather than Config field editing.
+Read-only, sensitive managed credential hash. The raw token is never exposed through config views. Reuse this token when adding this MCP server to ChatGPT. Manage it with `cgm auth mcp show`, `cgm auth mcp copy`, or `cgm auth mcp rotate` rather than Config field editing. Legacy hash-only values need one rotate before reveal/copy work.
 
 ### `auth.admin_token_hash` — Admin credential
 

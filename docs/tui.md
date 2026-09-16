@@ -161,7 +161,7 @@ Instruction manages Global Context, managed rules, and detected instruction sour
 
 ## Runtime
 
-Runtime is the operational control surface for service state, authentication, install/update actions, alias state, and version/build information.
+Runtime is the operational control surface for service state, authentication, install/update actions, alias state, and version/build information. Direct MCP HTTP token reveal/copy/rotate live here and reuse the stored token; admin rotation remains one-time plaintext.
 
 For scripts or remote automation, use the equivalent CLI commands instead. See [Runtime and operations](runtime.md).
 

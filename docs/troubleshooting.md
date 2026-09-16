@@ -298,10 +298,11 @@ Inspect authentication:
 cgm auth status
 ```
 
-Create/rotate a Direct MCP HTTP token if needed:
+Reveal or rotate a Direct MCP HTTP token if needed:
 
 ```bash
-cgm auth mcp create
+cgm auth mcp show
+cgm auth mcp rotate
 ```
 
 Then send:
@@ -325,7 +326,7 @@ cgm auth status
 Create credentials if appropriate:
 
 ```bash
-cgm auth mcp create
+cgm auth mcp rotate
 cgm auth admin create
 ```
 

@@ -63,9 +63,9 @@ The dedicated generic-client HTTP transport is intentionally separate from the t
 
 `stdio` uses the local child-process boundary and does not require a bearer token.
 
-Protected `cgm mcp http` uses the same Direct MCP HTTP token as managed `/mcp`. Disable authentication with `cgm auth mcp disable` when a local client should connect without a token. Reuse that token when adding this MCP server to ChatGPT.
+Protected `cgm mcp http` uses the same Direct MCP HTTP token as managed `/mcp`. Disable authentication with `cgm auth mcp disable` when a local client should connect without a token. Reuse that token when adding this MCP server to ChatGPT; reveal it with `cgm auth mcp show` instead of rotating.
 
-The OpenAI Secure MCP Tunnel runtime API key is unrelated to Direct MCP HTTP authentication.
+The OpenAI Secure MCP Tunnel runtime API key is unrelated to Direct MCP HTTP authentication. Tunnel connections neither require nor accept that token.
 
 See [Configuration](configuration.md#authentication) and [Security](security.md).
 

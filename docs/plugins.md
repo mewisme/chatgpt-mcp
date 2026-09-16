@@ -42,6 +42,8 @@ cgm plugin verify admin-ui
 
 The core keeps the admin listener, authentication, `/api/*`, activity endpoints, and security headers. `admin-ui` only provides signed static assets through `web-ui/admin` and requests no runtime permissions. Without an enabled provider, API routes remain available while the root UI returns a service-unavailable response with the install command. Auth and tunnel behavior stay in core; they are not workspace plugins.
 
+Admin Settings can reveal, copy, and rotate the Direct MCP HTTP token after Admin authentication. Ordinary config GET responses expose only configured/enabled/revealable flags, never the plaintext token. Copy reuses the stored token; rotate replaces it. Secure MCP Tunnel credentials stay on the Tunnel page and are independent.
+
 The official RTK wrapper is host-backed. If RTK is not available on `PATH`, installation can use the manifest-declared verified portable binary or a supported global installer; manual shell installation hints remain recommendations only. `bash` and `rtk` may be installed globally or for one workspace. Built-in Ponytail and Caveman remain global-only.
 
 `cgm plugin rollback <plugin> [version]` rolls back to a retained version. With no version it selects the newest retained version older than the active version. Current installs persist verified registry/publisher identity plus manifest and artifact digests alongside a local payload integrity root, so a retained version can be re-verified and activated while its registry is offline. Legacy retained versions created before that metadata existed fall back to registry re-resolution and signature verification before activation.

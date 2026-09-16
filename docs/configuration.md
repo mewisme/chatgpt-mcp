@@ -161,11 +161,15 @@ MCP and Admin endpoint authentication are separate policies. Direct MCP HTTP aut
 
 ```bash
 cgm auth status
-cgm auth mcp create
+cgm auth mcp show
+cgm auth mcp copy
+cgm auth mcp rotate
 cgm auth admin create
 cgm auth mcp enable
 cgm auth admin enable
 ```
+
+`cgm auth mcp create` is a deprecated alias for `cgm auth mcp rotate`. Reveal/copy reuse the stored token; rotate only when replacing it. Legacy hash-only installs (`auth.mcp_token_hash` without an encrypted secret) stay configured until one rotate makes the token revealable.
 
 Direct authenticated HTTP clients use the credential expected by that endpoint/transport. The OpenAI tunnel runtime API key is different: it authenticates the tunnel client to OpenAI and is not a Direct MCP HTTP or Admin bearer token.
 

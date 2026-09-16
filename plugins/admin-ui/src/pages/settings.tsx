@@ -68,7 +68,7 @@ export function SettingsPage() {
       adminApi.plugins(),
       adminApi.workspaces(),
     ])
-      .then(async ([nextConfig, nextInterfaces, nextTunnels, plugins, nextWorkspaces]) => {
+      .then(async ([nextConfig, nextInterfaces, nextTunnels, , nextWorkspaces]) => {
         const normalized = normalizeConfig(nextConfig)
         setConfig(normalized)
         setSavedConfig(normalized)

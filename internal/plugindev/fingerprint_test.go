@@ -21,8 +21,8 @@ func TestFingerprintStableThenChangesWithPluginSource(t *testing.T) {
 	if first == "" || first != second {
 		t.Fatalf("fingerprint unstable: %s %s", first, second)
 	}
-	probe := filepath.Join(root, "plugins", "caveman", "fingerprint_probe_test_hook.go")
-	if err := os.WriteFile(probe, []byte("package caveman\n"), 0o600); err != nil {
+	probe := filepath.Join(root, "plugins", "caveman", "fingerprint_probe_hook.txt")
+	if err := os.WriteFile(probe, []byte("probe"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Remove(probe) })
@@ -41,8 +41,8 @@ func TestFingerprintIncludesSharedModuleSource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	shared := filepath.Join(root, "internal", "runtimeplugin", "fingerprint_probe_test_hook.go")
-	if err := os.WriteFile(shared, []byte("package runtimeplugin\n"), 0o600); err != nil {
+	shared := filepath.Join(root, "internal", "runtimeplugin", "fingerprint_probe_hook.txt")
+	if err := os.WriteFile(shared, []byte("probe"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Remove(shared) })

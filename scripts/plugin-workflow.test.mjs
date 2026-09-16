@@ -89,6 +89,11 @@ test("core plugin selection is workflow metadata, not a hardcoded list", async (
   assert.deepEqual(filtered, ["all"])
 })
 
+test("workflow child processes disable recursive dev bootstrap", async () => {
+  const source = await readFile(new URL("./plugin-workflow.mjs", import.meta.url), "utf8")
+  assert.match(source, /CHATGPT_MCP_DEV_PLUGINS: "off"/)
+})
+
 test("dev bundle output stays inside the repository", () => {
   assert.throws(() => resolveBundleOutput(".."), /escapes repository/)
   assert.throws(() => resolveBundleOutput("../outside"), /escapes repository/)

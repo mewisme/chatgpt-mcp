@@ -15,7 +15,6 @@ import (
 	"testing"
 
 	"go.mewis.me/chatgpt-mcp/internal/plugin"
-	"go.mewis.me/chatgpt-mcp/internal/pluginbuild"
 )
 
 var pluginBuilder = workflowBuild
@@ -304,7 +303,7 @@ func workflowBuild(repoRoot, id, output string) error {
 	cmd.Dir = repoRoot
 	cmd.Stdout = os.Stderr
 	cmd.Stderr = os.Stderr
-	cmd.Env = append(os.Environ(), EnvPlugins+"="+ModeOff, pluginbuild.EnvUPX+"="+pluginbuild.EnvUPXOff)
+	cmd.Env = append(os.Environ(), EnvPlugins+"="+ModeOff, "CGM_PLUGIN_UPX=off")
 	if err := cmd.Run(); err != nil {
 		if errors.Is(err, exec.ErrNotFound) || strings.Contains(err.Error(), "executable file not found") {
 			return fmt.Errorf("node is required to build plugin %s", id)

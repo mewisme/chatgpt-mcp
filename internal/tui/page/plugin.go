@@ -539,7 +539,11 @@ func (page *PluginPage) rows() []component.Row {
 			if item.Lock.Enabled {
 				state = "enabled"
 			}
-			rows = append(rows, component.Row{ID: string(id), Title: item.Installed.Manifest.Name, Description: string(id) + " · " + item.Lock.Registry + "/" + item.Lock.Publisher, Meta: string(item.Lock.Version) + " · " + string(item.Installed.Manifest.Type) + " · " + state, Search: strings.Join([]string{string(id), item.Installed.Manifest.Name, string(item.Lock.Version), item.Lock.Registry, item.Lock.Publisher}, " ")})
+			origin := item.Lock.Registry + "/" + item.Lock.Publisher
+			if item.Origin == pluginpkg.OriginBuiltin {
+				origin = item.Origin.Label()
+			}
+			rows = append(rows, component.Row{ID: string(id), Title: item.Installed.Manifest.Name, Description: string(id) + " · " + origin, Meta: string(item.Lock.Version) + " · " + string(item.Installed.Manifest.Type) + " · " + state, Search: strings.Join([]string{string(id), item.Installed.Manifest.Name, string(item.Lock.Version), origin}, " ")})
 		}
 		return rows
 	}
@@ -563,7 +567,15 @@ func (page *PluginPage) rowActions() []component.RowAction {
 		return []component.RowAction{command("d", "remove", PluginRegistryRemove, func(row component.Row) bool { return row.ID != pluginpkg.OfficialRegistryName })}
 	default:
 		return []component.RowAction{
-			command("space", "toggle", PluginEnable, nil), command("u", "update", PluginUpdate, nil), command("b", "rollback", PluginRollback, nil), command("p", "prune", PluginPrune, nil), command("v", "verify", PluginVerify, nil), command("d", "uninstall", PluginUninstall, nil), command("D", "force uninstall", PluginForceUninstall, nil),
+			command("space", "toggle", PluginEnable, func(row component.Row) bool {
+				return page.pluginLifecycle(row.ID).Enable || page.pluginLifecycle(row.ID).Disable
+			}),
+			command("u", "update", PluginUpdate, func(row component.Row) bool { return page.pluginLifecycle(row.ID).Update }),
+			command("b", "rollback", PluginRollback, func(row component.Row) bool { return page.pluginLifecycle(row.ID).Rollback }),
+			command("p", "prune", PluginPrune, func(row component.Row) bool { return page.pluginLifecycle(row.ID).Prune }),
+			command("v", "verify", PluginVerify, func(row component.Row) bool { return page.pluginLifecycle(row.ID).Verify }),
+			command("d", "uninstall", PluginUninstall, func(row component.Row) bool { return page.pluginLifecycle(row.ID).Uninstall }),
+			command("D", "force uninstall", PluginForceUninstall, func(row component.Row) bool { return page.pluginLifecycle(row.ID).Uninstall }),
 		}
 	}
 }
@@ -591,12 +603,60 @@ func (page *PluginPage) browserTitle() string {
 	}
 }
 
+func (page *PluginPage) pluginLifecycle(id string) pluginpkg.Lifecycle {
+	if item, ok := page.installed[pluginpkg.PluginID(id)]; ok {
+		if item.Origin == pluginpkg.OriginBuiltin {
+			return item.Lifecycle
+		}
+		if item.Lifecycle != (pluginpkg.Lifecycle{}) {
+			return item.Lifecycle
+		}
+	}
+	return pluginpkg.ArtifactLifecycle()
+}
+
+func (page *PluginPage) detailLifecycle(detail application.PluginDetail) pluginpkg.Lifecycle {
+	if detail.Origin == pluginpkg.OriginBuiltin {
+		return detail.Lifecycle
+	}
+	if detail.Lifecycle != (pluginpkg.Lifecycle{}) {
+		return detail.Lifecycle
+	}
+	return pluginpkg.ArtifactLifecycle()
+}
+
+func lifecycleAllows(life pluginpkg.Lifecycle, command PluginCommand) bool {
+	switch command {
+	case PluginInstall:
+		return life.Install
+	case PluginUpdate:
+		return life.Update
+	case PluginRollback:
+		return life.Rollback
+	case PluginPrune:
+		return life.Prune
+	case PluginUninstall, PluginForceUninstall:
+		return life.Uninstall
+	case PluginEnable:
+		return life.Enable
+	case PluginDisable:
+		return life.Disable
+	case PluginVerify:
+		return life.Verify
+	default:
+		return true
+	}
+}
+
 func (page *PluginPage) openCommand(command PluginCommand, target string) (tea.Cmd, error) {
 	page.err, page.notice = nil, ""
 	page.command, page.targetID = command, strings.TrimSpace(target)
 	if command == PluginRefresh {
 		page.loading = true
 		return page.loadCmd(), nil
+	}
+	if command != PluginRegistryRemove && !lifecycleAllows(page.pluginLifecycle(page.targetID), command) {
+		return nil, fmt.Errorf("%w: %s", pluginpkg.ErrBuiltinPlugin, page.targetID)
 	}
 	if command == PluginVerify {
 		return page.startOperation(command, page.targetID), nil
@@ -952,27 +1012,38 @@ func (page *PluginPage) syncPluginDetail() {
 		trust = "trusted"
 	}
 	content := detailFields(
-		[2]string{"ID", string(manifest.ID)}, [2]string{"Name", manifest.Name}, [2]string{"Version", string(manifest.Version)}, [2]string{"Type", string(manifest.Type)}, [2]string{"State", state},
+		[2]string{"ID", string(manifest.ID)}, [2]string{"Name", manifest.Name}, [2]string{"Version", string(manifest.Version)}, [2]string{"Type", string(manifest.Type)}, [2]string{"Origin", detail.Origin.Label()}, [2]string{"State", state},
 		[2]string{"Registry", detail.Registry.Name}, [2]string{"Publisher", detail.Publisher.Name}, [2]string{"Publisher trust", trust}, [2]string{"Signature", detail.SignatureStatus}, [2]string{"Source", detail.Publisher.Source}, [2]string{"Signing repository", detail.Publisher.Sigstore.Repository},
 		[2]string{"Capabilities", pluginCapabilities(manifest.Provides)}, [2]string{"Permissions", pluginPermissions(manifest.Permissions)}, [2]string{"Dependencies", pluginCapabilities(manifest.Dependencies.Capabilities)}, [2]string{"Core requirement", manifest.Requires.ChatGPTMCP}, [2]string{"Core compatibility", detail.CoreCompatibility}, [2]string{"Platforms", pluginPlatforms(manifest.Platforms)},
 	)
 	page.detail = component.NewDetailPage(manifest.Name, string(manifest.Version)+" · "+string(manifest.Type)+" · "+state, content).WithTitleVisible(false)
 	bindings := []component.DetailPageBinding{{Key: "r", Desc: "refresh", Message: PluginCommandMsg{Command: PluginRefresh}}}
+	life := page.detailLifecycle(detail)
 	if detail.Installed {
-		toggle := PluginEnable
-		if detail.Enabled {
-			toggle = PluginDisable
+		if life.Enable || life.Disable {
+			toggle := PluginEnable
+			if detail.Enabled {
+				toggle = PluginDisable
+			}
+			bindings = append(bindings, component.DetailPageBinding{Key: "space", HelpKey: "space", Desc: "toggle", Message: PluginCommandMsg{Command: toggle, TargetID: string(manifest.ID)}})
 		}
-		bindings = append(bindings,
-			component.DetailPageBinding{Key: "space", HelpKey: "space", Desc: "toggle", Message: PluginCommandMsg{Command: toggle, TargetID: string(manifest.ID)}},
-			component.DetailPageBinding{Key: "u", Desc: "update", Message: PluginCommandMsg{Command: PluginUpdate, TargetID: string(manifest.ID)}},
-			component.DetailPageBinding{Key: "b", Desc: "rollback", Message: PluginCommandMsg{Command: PluginRollback, TargetID: string(manifest.ID)}},
-			component.DetailPageBinding{Key: "p", Desc: "prune", Message: PluginCommandMsg{Command: PluginPrune, TargetID: string(manifest.ID)}},
-			component.DetailPageBinding{Key: "v", Desc: "verify", Message: PluginCommandMsg{Command: PluginVerify, TargetID: string(manifest.ID)}},
-			component.DetailPageBinding{Key: "d", Desc: "uninstall", Message: PluginCommandMsg{Command: PluginUninstall, TargetID: string(manifest.ID)}},
-			component.DetailPageBinding{Key: "D", Desc: "force uninstall", Message: PluginCommandMsg{Command: PluginForceUninstall, TargetID: string(manifest.ID)}},
-		)
-	} else {
+		if life.Update {
+			bindings = append(bindings, component.DetailPageBinding{Key: "u", Desc: "update", Message: PluginCommandMsg{Command: PluginUpdate, TargetID: string(manifest.ID)}})
+		}
+		if life.Rollback {
+			bindings = append(bindings, component.DetailPageBinding{Key: "b", Desc: "rollback", Message: PluginCommandMsg{Command: PluginRollback, TargetID: string(manifest.ID)}})
+		}
+		if life.Prune {
+			bindings = append(bindings, component.DetailPageBinding{Key: "p", Desc: "prune", Message: PluginCommandMsg{Command: PluginPrune, TargetID: string(manifest.ID)}})
+		}
+		if life.Verify {
+			bindings = append(bindings, component.DetailPageBinding{Key: "v", Desc: "verify", Message: PluginCommandMsg{Command: PluginVerify, TargetID: string(manifest.ID)}})
+		}
+		if life.Uninstall {
+			bindings = append(bindings, component.DetailPageBinding{Key: "d", Desc: "uninstall", Message: PluginCommandMsg{Command: PluginUninstall, TargetID: string(manifest.ID)}})
+			bindings = append(bindings, component.DetailPageBinding{Key: "D", Desc: "force uninstall", Message: PluginCommandMsg{Command: PluginForceUninstall, TargetID: string(manifest.ID)}})
+		}
+	} else if life.Install {
 		bindings = append(bindings, component.DetailPageBinding{Key: "i", Desc: "install", Message: PluginCommandMsg{Command: PluginInstall, TargetID: detail.Reference}})
 	}
 	page.detail.SetBindings(bindings...)

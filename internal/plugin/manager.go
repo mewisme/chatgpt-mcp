@@ -95,6 +95,13 @@ func (manager Manager) InstallWithOptions(ctx context.Context, reference string,
 	if options.HostInstall != HostInstallExisting && options.HostInstall != HostInstallPortable {
 		return InstallResult{}, fmt.Errorf("unsupported host install mode %q", options.HostInstall)
 	}
+	_, id, _, err := ParseReference(reference)
+	if err != nil {
+		return InstallResult{}, err
+	}
+	if err := manager.rejectBuiltinArtifact(id); err != nil {
+		return InstallResult{}, err
+	}
 	resolved, err := manager.Resolve(ctx, reference)
 	if err != nil {
 		return InstallResult{}, err
@@ -186,6 +193,9 @@ func (manager Manager) Uninstall(ctx context.Context, id PluginID, force bool) (
 	if manager.Store == nil {
 		return errors.New("plugin store is unavailable")
 	}
+	if err := manager.rejectBuiltinArtifact(id); err != nil {
+		return err
+	}
 	unlock, err := manager.Store.lockMutation()
 	if err != nil {
 		return err
@@ -267,6 +277,9 @@ func (manager Manager) Verify(ctx context.Context, id PluginID) (err error) {
 	defer func() { span.Finish(err) }()
 	if manager.Store == nil {
 		return errors.New("plugin store is unavailable")
+	}
+	if _, ok := manager.LookupBuiltin(id); ok {
+		return nil
 	}
 	lock, err := LoadLock(manager.Store.layout.LockPath())
 	if err != nil {
@@ -383,6 +396,9 @@ func (manager Manager) Update(ctx context.Context, id PluginID) (result InstallR
 		}
 		span.Finish(err, fields...)
 	}()
+	if err := manager.rejectBuiltinArtifact(id); err != nil {
+		return InstallResult{}, err
+	}
 	lock, err := LoadLock(manager.Store.layout.LockPath())
 	if err != nil {
 		return InstallResult{}, err
@@ -412,6 +428,9 @@ func (manager Manager) Update(ctx context.Context, id PluginID) (result InstallR
 func (manager Manager) PruneVersions(id PluginID, retainInactive int) ([]Version, error) {
 	if manager.Store == nil {
 		return nil, errors.New("plugin store is unavailable")
+	}
+	if err := manager.rejectBuiltinArtifact(id); err != nil {
+		return nil, err
 	}
 	if retainInactive < 0 {
 		return nil, errors.New("rollback retention cannot be negative")
@@ -532,6 +551,9 @@ func (manager Manager) Rollback(ctx context.Context, id PluginID, target Version
 	defer func() { span.Finish(err, tracepkg.String("version", string(result.Plugin.Manifest.Version))) }()
 	if manager.Store == nil {
 		return InstallResult{}, errors.New("plugin store is unavailable")
+	}
+	if err := manager.rejectBuiltinArtifact(id); err != nil {
+		return InstallResult{}, err
 	}
 	lock, err := LoadLock(manager.Store.layout.LockPath())
 	if err != nil {

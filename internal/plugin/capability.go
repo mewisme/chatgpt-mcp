@@ -48,6 +48,9 @@ func NewResolver(store *Store) (*Resolver, error) {
 	providers := map[Capability][]CapabilityProvider{}
 	for _, idValue := range ids {
 		id := PluginID(idValue)
+		if _, ok := store.Builtins.Lookup(id); ok {
+			continue
+		}
 		entry := lock.Plugins[id]
 		if !entry.Enabled {
 			continue
@@ -79,6 +82,15 @@ func NewResolver(store *Store) (*Resolver, error) {
 		}
 		provider := CapabilityProvider{PluginID: id, Version: entry.Version, Name: installed.Manifest.Name, Path: installed.Entrypoint, Host: installed.Host, Permissions: append([]Permission(nil), installed.Manifest.Permissions...)}
 		for _, capability := range installed.Manifest.Provides {
+			providers[capability] = append(providers[capability], provider)
+		}
+	}
+	for _, builtin := range store.Builtins {
+		if !builtin.DefaultEnabled {
+			continue
+		}
+		provider := CapabilityProvider{PluginID: builtin.ID, Version: catalogCoreVersion(store.runtime.CoreVersion), Name: builtin.Name, Permissions: append([]Permission(nil), builtin.Permissions...)}
+		for _, capability := range builtin.Provides {
 			providers[capability] = append(providers[capability], provider)
 		}
 	}

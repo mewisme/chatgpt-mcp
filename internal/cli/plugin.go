@@ -57,6 +57,9 @@ func pluginSearchCommand() *cobra.Command {
 				if query != "" && !strings.Contains(haystack, query) {
 					continue
 				}
+				if _, ok := manager.LookupBuiltin(id); ok {
+					continue
+				}
 				log.Detail(snapshot.Registry.Name+"/"+string(id), fmt.Sprintf("%s  %s", entry.Stable, entry.Description))
 				count++
 			}
@@ -74,11 +77,24 @@ func pluginInfoCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		resolved, err := manager.Resolve(cmd.Context(), args[0])
+		_, id, _, err := pluginpkg.ParseReference(args[0])
 		if err != nil {
 			return err
 		}
 		log := commandLogger(cmd)
+		if builtin, ok := manager.LookupBuiltin(id); ok {
+			log.Detail("id", string(builtin.ID))
+			log.Detail("name", builtin.Name)
+			log.Detail("origin", pluginpkg.OriginBuiltin.Label())
+			log.Detail("version", version.Version)
+			log.Detail("type", string(builtin.Type))
+			log.Detail("description", builtin.Description)
+			return nil
+		}
+		resolved, err := manager.Resolve(cmd.Context(), args[0])
+		if err != nil {
+			return err
+		}
 		log.Detail("id", resolved.Registry.Name+"/"+string(resolved.PluginID))
 		log.Detail("name", resolved.Entry.Name)
 		log.Detail("version", resolved.Version)
@@ -91,29 +107,23 @@ func pluginInfoCommand() *cobra.Command {
 
 func pluginListCommand() *cobra.Command {
 	return &cobra.Command{Use: "list", Aliases: []string{"ls"}, Short: "List installed plugins", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
-		_, layout, err := newPluginManager()
+		manager, _, err := newPluginManager()
 		if err != nil {
 			return err
 		}
-		lock, err := pluginpkg.LoadLock(layout.LockPath())
+		items, err := manager.Catalog()
 		if err != nil {
 			return err
 		}
-		ids := make([]string, 0, len(lock.Plugins))
-		for id := range lock.Plugins {
-			ids = append(ids, string(id))
-		}
-		sort.Strings(ids)
 		log := commandLogger(cmd)
-		for _, id := range ids {
-			entry := lock.Plugins[pluginpkg.PluginID(id)]
+		for _, item := range items {
 			state := "disabled"
-			if entry.Enabled {
+			if item.Enabled {
 				state = "enabled"
 			}
-			log.Detail(id, fmt.Sprintf("%s  %s  %s", entry.Version, entry.Registry, state))
+			log.Detail(string(item.ID), fmt.Sprintf("%s  %s  %s", item.Version, item.Origin.Label(), state))
 		}
-		if len(ids) == 0 {
+		if len(items) == 0 {
 			log.Notice("PLUGIN", "plugin.list.empty", "No plugins installed")
 		}
 		return nil
@@ -247,6 +257,12 @@ func pluginToggleCommand(enabled bool) *cobra.Command {
 		id, err := simplePluginID(args[0])
 		if err != nil {
 			return err
+		}
+		if builtin, ok := manager.LookupBuiltin(id); ok {
+			if !builtin.Disableable {
+				return fmt.Errorf("%w: %s cannot be disabled", pluginpkg.ErrBuiltinPlugin, id)
+			}
+			return fmt.Errorf("%w: %s", pluginpkg.ErrBuiltinPlugin, id)
 		}
 		span := tracepkg.Start(cmd.Context(), "PLUGIN", traceName, action+" plugin", tracepkg.String("plugin_id", string(id)))
 		if err := manager.Store.SetEnabled(id, enabled); err != nil {

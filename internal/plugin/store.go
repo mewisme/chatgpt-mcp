@@ -40,9 +40,10 @@ type InstalledPlugin struct {
 }
 
 type Store struct {
-	layout  Layout
-	runtime RuntimeContext
-	mu      sync.Mutex
+	layout   Layout
+	runtime  RuntimeContext
+	Builtins BuiltinRegistry
+	mu       sync.Mutex
 }
 
 func NewStore(layout Layout, context RuntimeContext) (*Store, error) {
@@ -69,6 +70,9 @@ func (store *Store) Install(manifest Manifest, payloadSource string) (InstalledP
 		return InstalledPlugin{}, err
 	}
 	defer unlock()
+	if _, ok := store.Builtins.Lookup(manifest.ID); ok {
+		return InstalledPlugin{}, fmt.Errorf("%w: %s", ErrBuiltinPlugin, manifest.ID)
+	}
 	if err := manifest.Validate(); err != nil {
 		return InstalledPlugin{}, err
 	}
@@ -301,6 +305,9 @@ func (store *Store) SetEnabled(id PluginID, enabled bool) error {
 	entry, ok := lock.Plugins[id]
 	if !ok {
 		return fmt.Errorf("plugin %s is not active", id)
+	}
+	if _, builtin := store.Builtins.Lookup(id); builtin {
+		return fmt.Errorf("%w: %s", ErrBuiltinPlugin, id)
 	}
 	if enabled {
 		installed, err := store.Installed(id, entry.Version)

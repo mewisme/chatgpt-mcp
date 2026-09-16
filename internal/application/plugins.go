@@ -18,6 +18,8 @@ type PluginService struct {
 
 type InstalledPluginInfo struct {
 	ID        pluginpkg.PluginID
+	Origin    pluginpkg.Origin
+	Lifecycle pluginpkg.Lifecycle
 	Lock      pluginpkg.LockPlugin
 	Installed pluginpkg.InstalledPlugin
 }
@@ -39,6 +41,8 @@ type PluginDetail struct {
 	Publisher         pluginpkg.Publisher
 	Installed         bool
 	Enabled           bool
+	Origin            pluginpkg.Origin
+	Lifecycle         pluginpkg.Lifecycle
 	SignatureStatus   string
 	CoreCompatibility string
 }
@@ -62,23 +66,17 @@ func (service *PluginService) Installed() ([]InstalledPluginInfo, error) {
 	if service == nil || service.Manager == nil || service.Manager.Store == nil {
 		return nil, fmt.Errorf("plugin service is unavailable")
 	}
-	lock, err := pluginpkg.LoadLock(service.Layout.LockPath())
+	catalog, err := service.Manager.Catalog()
 	if err != nil {
 		return nil, err
 	}
-	ids := make([]pluginpkg.PluginID, 0, len(lock.Plugins))
-	for id := range lock.Plugins {
-		ids = append(ids, id)
-	}
-	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
-	items := make([]InstalledPluginInfo, 0, len(ids))
-	for _, id := range ids {
-		entry := lock.Plugins[id]
-		installed, err := service.Manager.Store.Installed(id, entry.Version)
-		if err != nil {
-			return nil, fmt.Errorf("load installed plugin %s@%s: %w", id, entry.Version, err)
-		}
-		items = append(items, InstalledPluginInfo{ID: id, Lock: entry, Installed: installed})
+	items := make([]InstalledPluginInfo, 0, len(catalog))
+	for _, entry := range catalog {
+		items = append(items, InstalledPluginInfo{
+			ID: entry.ID, Origin: entry.Origin, Lifecycle: entry.Lifecycle,
+			Lock:      pluginpkg.LockPlugin{Registry: entry.Registry, Publisher: entry.Publisher, Version: entry.Version, Enabled: entry.Enabled},
+			Installed: entry.Installed,
+		})
 	}
 	return items, nil
 }
@@ -103,6 +101,9 @@ func (service *PluginService) Marketplace(ctx context.Context) ([]MarketplacePlu
 		}
 		sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
 		for _, id := range ids {
+			if _, ok := service.Manager.LookupBuiltin(id); ok {
+				continue
+			}
 			entry := snapshot.Index.Plugins[id]
 			publisher := snapshot.Publishers.Publishers[entry.Publisher]
 			item := MarketplacePluginInfo{Reference: snapshot.Registry.Name + "/" + string(id), Registry: snapshot.Registry, ID: id, Entry: entry, Publisher: publisher, FetchedAt: snapshot.FetchedAt.UTC().Format("2006-01-02 15:04:05Z")}
@@ -143,6 +144,15 @@ func (service *PluginService) Registries() ([]PluginRegistryInfo, error) {
 func (service *PluginService) InstalledDetail(id pluginpkg.PluginID) (PluginDetail, error) {
 	if service == nil || service.Manager == nil || service.Manager.Store == nil {
 		return PluginDetail{}, fmt.Errorf("plugin service is unavailable")
+	}
+	if builtin, ok := service.Manager.LookupBuiltin(id); ok {
+		manifest := builtin.CatalogManifest(version.Version)
+		return PluginDetail{
+			Reference: string(id), Manifest: manifest, Registry: pluginpkg.Registry{Name: pluginpkg.BuiltinRegistryName},
+			Publisher: pluginpkg.Publisher{Name: pluginpkg.BuiltinPublisher, Trusted: true, Source: "compiled into chatgpt-mcp"},
+			Installed: true, Enabled: builtin.DefaultEnabled, Origin: pluginpkg.OriginBuiltin, Lifecycle: builtin.Lifecycle(),
+			SignatureStatus: "built-in", CoreCompatibility: "compiled into chatgpt-mcp",
+		}, nil
 	}
 	lock, err := pluginpkg.LoadLock(service.Layout.LockPath())
 	if err != nil {
@@ -185,7 +195,7 @@ func (service *PluginService) InstalledDetail(id pluginpkg.PluginID) (PluginDeta
 	if verifyErr := service.Manager.Verify(context.Background(), id); verifyErr != nil {
 		verification = "verification failed: " + verifyErr.Error()
 	}
-	return PluginDetail{Reference: entry.Registry + "/" + string(id), Manifest: installed.Manifest, Registry: registry, Publisher: publisher, Installed: true, Enabled: entry.Enabled, SignatureStatus: verification, CoreCompatibility: pluginCoreCompatibility(installed.Manifest)}, nil
+	return PluginDetail{Reference: entry.Registry + "/" + string(id), Manifest: installed.Manifest, Registry: registry, Publisher: publisher, Installed: true, Enabled: entry.Enabled, Origin: pluginpkg.OriginInstalled, Lifecycle: pluginpkg.ArtifactLifecycle(), SignatureStatus: verification, CoreCompatibility: pluginCoreCompatibility(installed.Manifest)}, nil
 }
 
 func (service *PluginService) MarketplaceDetail(ctx context.Context, reference string) (PluginDetail, error) {
@@ -205,7 +215,7 @@ func (service *PluginService) MarketplaceDetail(ctx context.Context, reference s
 		return PluginDetail{}, err
 	}
 	entry, installed := lock.Plugins[resolved.PluginID]
-	return PluginDetail{Reference: resolved.Registry.Name + "/" + string(resolved.PluginID), Manifest: manifest, Registry: resolved.Registry, Publisher: resolved.Publisher, Installed: installed, Enabled: installed && entry.Enabled, SignatureStatus: "verified signed manifest", CoreCompatibility: pluginCoreCompatibility(manifest)}, nil
+	return PluginDetail{Reference: resolved.Registry.Name + "/" + string(resolved.PluginID), Manifest: manifest, Registry: resolved.Registry, Publisher: resolved.Publisher, Installed: installed, Enabled: installed && entry.Enabled, Origin: pluginpkg.OriginInstalled, Lifecycle: pluginpkg.ArtifactLifecycle(), SignatureStatus: "verified signed manifest", CoreCompatibility: pluginCoreCompatibility(manifest)}, nil
 }
 
 func (service *PluginService) Install(ctx context.Context, reference string) (pluginpkg.InstallResult, error) {
@@ -263,6 +273,12 @@ func (service *PluginService) SetEnabled(ctx context.Context, id pluginpkg.Plugi
 	}
 	span := tracepkg.Start(ctx, "PLUGIN", "plugin.tui.toggle", "Changing plugin enabled state", tracepkg.String("plugin_id", string(id)), tracepkg.Bool("enabled", enabled))
 	defer func() { span.Finish(err) }()
+	if builtin, ok := service.Manager.LookupBuiltin(id); ok {
+		if !builtin.Disableable {
+			return fmt.Errorf("%w: %s cannot be disabled", pluginpkg.ErrBuiltinPlugin, id)
+		}
+		return fmt.Errorf("%w: %s", pluginpkg.ErrBuiltinPlugin, id)
+	}
 	return service.Manager.Store.SetEnabled(id, enabled)
 }
 

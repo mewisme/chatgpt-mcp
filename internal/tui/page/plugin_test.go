@@ -65,6 +65,43 @@ func TestPluginPageInstalledListDetailAndConfirmation(t *testing.T) {
 	}
 }
 
+func TestPluginPageBuiltinHidesArtifactActions(t *testing.T) {
+	service := testPluginService(t)
+	page, err := newPluginsRouteAction(t.Context(), "", "", "", service)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page.finishLoad(page.loadCmd()().(pluginLoadMsg))
+	if !page.browser.SelectID("ponytail") {
+		t.Fatal("built-in plugin missing from installed list")
+	}
+	selected, ok := page.browser.Selected()
+	if !ok || !strings.Contains(selected.Description, "Built-in") {
+		t.Fatalf("built-in row = %#v ok=%t", selected, ok)
+	}
+	if _, err := page.openCommand(PluginUninstall, "ponytail"); err == nil || !strings.Contains(err.Error(), "built-in") {
+		t.Fatalf("uninstall builtin error = %v", err)
+	}
+
+	detail, err := newPluginsRouteAction(t.Context(), "ponytail", "", "", service)
+	if err != nil {
+		t.Fatal(err)
+	}
+	detail.finishLoad(detail.loadCmd()().(pluginLoadMsg))
+	view := ansi.Strip(detail.View(100, 28))
+	for _, want := range []string{"Built-in", "built-in", "ponytail"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("builtin detail missing %q: %q", want, view)
+		}
+	}
+	for _, key := range []rune{'u', 'b', 'p', 'd', 'D'} {
+		_, cmd := detail.detail.Update(tea.KeyPressMsg{Code: key, Text: string(key)})
+		if cmd != nil {
+			t.Fatalf("builtin detail key %q should be hidden, got %#v", key, cmd())
+		}
+	}
+}
+
 func TestPluginPageRegistryEditorAndRemoveConfirmation(t *testing.T) {
 	service := testPluginService(t)
 	page, err := newPluginsRouteAction(t.Context(), "", "registries", "add", service)
@@ -178,5 +215,6 @@ func testPluginService(t *testing.T) *application.PluginService {
 	if err := store.Activate("demo", "1.0.0", pluginpkg.ActivationTrust{Registry: pluginpkg.OfficialRegistryName, Publisher: "mewisme", Trusted: true}); err != nil {
 		t.Fatal(err)
 	}
+	store.Builtins = pluginpkg.BuiltinRegistry{{ID: "ponytail", Name: "Ponytail", Type: "tool-provider", Provides: []pluginpkg.Capability{"tool/ponytail"}, DefaultEnabled: true, Description: "built-in ponytail"}}
 	return &application.PluginService{Manager: &pluginpkg.Manager{Store: store, RegistryClient: pluginpkg.RegistryClient{Layout: layout}}, Layout: layout}
 }

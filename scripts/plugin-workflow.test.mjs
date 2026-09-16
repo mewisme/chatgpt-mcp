@@ -31,7 +31,7 @@ test("plugin workflow definitions match registry and source manifests", async ()
 
 test("declared core plugins are default-enabled and optional", async () => {
   const workflow = await loadWorkflow()
-  const coreIDs = ["admin-ui", "secure-mcp-tunnel", "tui", "markdown-formatter"]
+  const coreIDs = ["admin-ui", "secure-mcp-tunnel", "tui", "markdown-formatter", "ponytail", "caveman"]
   for (const id of coreIDs) {
     const plugin = workflow.plugins.find(candidate => candidate.id === id)
     assert.equal(plugin?.core?.required, false, id)

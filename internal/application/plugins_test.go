@@ -5,9 +5,15 @@ import (
 
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
+	"go.mewis.me/chatgpt-mcp/internal/pluginhost"
+	cavemanplugin "go.mewis.me/chatgpt-mcp/plugins/caveman"
+	ponytailplugin "go.mewis.me/chatgpt-mcp/plugins/ponytail"
 )
 
-func TestPluginServiceCatalogIncludesBuiltins(t *testing.T) {
+func TestPluginServiceCatalogIncludesInjectedBuiltins(t *testing.T) {
+	pluginhost.Install()
+	pluginpkg.SetCompiledBuiltins(pluginpkg.BuiltinRegistry{ponytailplugin.Plugin(), cavemanplugin.Plugin()})
+	t.Cleanup(func() { pluginpkg.SetCompiledBuiltins(nil) })
 	t.Setenv(configformat.EnvConfigDir, t.TempDir())
 	service, err := NewPluginService()
 	if err != nil {

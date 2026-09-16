@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -76,9 +77,6 @@ func TestReloadConfigUpdatesLiveRuntime(t *testing.T) {
 	got := app.Config.Snapshot()
 	if !got.Auth.MCPEnabled || len(got.Permissions.AllowDirs) != 1 {
 		t.Fatalf("runtime config = %#v", got)
-	}
-	if _, ok := app.Tools.Registry.Schema("ponytail_turn"); !ok {
-		t.Fatal("inactive feature controller tool disappeared")
 	}
 }
 
@@ -167,11 +165,9 @@ func TestReloadConfigFailedApplyRestoresCommittedConfig(t *testing.T) {
 	if err := app.Tools.Registry.ReplaceOwned("plugin:ponytail", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := app.Tools.Registry.Register("ponytail_turn", tools.Schema{Name: "ponytail_turn"}, func(context.Context, map[string]any) (tools.Result, error) {
-		return tools.TextResult("blocked"), nil
-	}); err != nil {
-		t.Fatal(err)
-	}
+	previousSync := tools.SyncCompiledPlugins
+	tools.SyncCompiledPlugins = func(*tools.Runtime) error { return errors.New("forced apply failure") }
+	t.Cleanup(func() { tools.SyncCompiledPlugins = previousSync })
 	next := previous
 	next.Auth.MCPEnabled = true
 	next.Auth.MCPTokenHash = "hash"

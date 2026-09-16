@@ -14,7 +14,9 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/application"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
+	"go.mewis.me/chatgpt-mcp/internal/pluginhost"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
+	ponytailplugin "go.mewis.me/chatgpt-mcp/plugins/ponytail"
 )
 
 func TestPluginCommandSurface(t *testing.T) {
@@ -54,6 +56,9 @@ func TestPluginUninstallExposesForceFlag(t *testing.T) {
 }
 
 func TestPluginConfigSetGetReset(t *testing.T) {
+	pluginhost.Install()
+	pluginpkg.SetCompiledBuiltins(pluginpkg.BuiltinRegistry{ponytailplugin.Plugin()})
+	t.Cleanup(func() { pluginpkg.SetCompiledBuiltins(nil) })
 	configDir := filepath.Join(t.TempDir(), "config")
 	previous := configformat.RootPath()
 	t.Cleanup(func() { _ = configformat.SetRootPath(previous) })
@@ -117,6 +122,9 @@ func TestPluginLifecycleCommandsExposeScopeFlags(t *testing.T) {
 }
 
 func TestPluginConfigWorkspaceScopeDoesNotLeak(t *testing.T) {
+	pluginhost.Install()
+	pluginpkg.SetCompiledBuiltins(pluginpkg.BuiltinRegistry{ponytailplugin.Plugin()})
+	t.Cleanup(func() { pluginpkg.SetCompiledBuiltins(nil) })
 	previous := configformat.RootPath()
 	t.Cleanup(func() { _ = configformat.SetRootPath(previous) })
 	configDir := filepath.Join(t.TempDir(), "config")

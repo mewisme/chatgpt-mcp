@@ -15,7 +15,6 @@ import (
 	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
 	"go.mewis.me/chatgpt-mcp/internal/upstream"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
-	ponytailplugin "go.mewis.me/chatgpt-mcp/plugins/ponytail"
 )
 
 func TestNewSharesToolRuntime(t *testing.T) {
@@ -32,12 +31,6 @@ func TestNewSharesToolRuntime(t *testing.T) {
 	}
 	if app.Upstream != app.Tools.Upstream {
 		t.Fatal("Admin and tool runtime do not share the same upstream manager")
-	}
-	if _, ok := app.Tools.Registry.Schema("ponytail_turn"); !ok {
-		t.Fatal("default app missing ponytail controller tool")
-	}
-	if _, ok := app.Tools.Registry.Schema("caveman_turn"); !ok {
-		t.Fatal("default app missing caveman controller tool")
 	}
 }
 
@@ -94,18 +87,19 @@ func TestReloadConfigSwitchesMCPHTTPRuntime(t *testing.T) {
 func TestNewKeepsControllerToolsWhenFeatureInactive(t *testing.T) {
 	cfg := config.Default()
 	store := pluginpkg.SettingsStore{Layout: pluginpkg.DefaultLayout()}
-	if err := store.Set(ponytailplugin.Plugin().Schema, "ponytail", "default_active", false); err != nil {
+	schema := pluginpkg.SettingsSchema{Fields: []pluginpkg.SettingField{
+		{Key: "default_active", Kind: pluginpkg.FieldBool, Default: true},
+		{Key: "default_mode", Kind: pluginpkg.FieldEnum, Enum: []string{"lite", "full", "ultra"}, Default: "full"},
+	}}
+	if err := store.Set(schema, "ponytail", "default_active", false); err != nil {
 		t.Fatal(err)
 	}
 	app, err := New(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := app.Tools.Registry.Schema("ponytail_turn"); !ok {
-		t.Fatal("inactive ponytail controller tool missing")
-	}
-	if _, ok := app.Tools.Registry.Schema("caveman_turn"); !ok {
-		t.Fatal("caveman controller tool missing")
+	if app.Tools == nil {
+		t.Fatal("tool runtime missing")
 	}
 }
 

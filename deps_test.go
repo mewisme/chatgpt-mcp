@@ -21,6 +21,10 @@ func TestCoreDepsExcludeCFTunnel(t *testing.T) {
 		"go.mewis.me/chatgpt-mcp/plugins/secure-mcp-tunnel",
 		"go.mewis.me/chatgpt-mcp/plugins/tui",
 		"go.mewis.me/chatgpt-mcp/plugins/markdown-formatter",
+		"go.mewis.me/chatgpt-mcp/plugins/ponytail",
+		"go.mewis.me/chatgpt-mcp/plugins/caveman",
+		"go.mewis.me/chatgpt-mcp/internal/ponytail",
+		"go.mewis.me/chatgpt-mcp/internal/caveman",
 		"go.mewis.me/chatgpt-mcp/pkg/cloudflared",
 		"github.com/quic-go/quic-go",
 		"zombiezen.com/go/capnproto2",
@@ -53,6 +57,8 @@ func TestCoreAndPluginBinarySizes(t *testing.T) {
 	secure := filepath.Join(dir, "secure-mcp-tunnel")
 	tui := filepath.Join(dir, "tui")
 	markdown := filepath.Join(dir, "markdown-formatter")
+	ponytail := filepath.Join(dir, "ponytail")
+	caveman := filepath.Join(dir, "caveman")
 	coreBuild := exec.Command("go", "build", "-o", core, ".")
 	coreBuild.Dir = root
 	if out, err := coreBuild.CombinedOutput(); err != nil {
@@ -78,6 +84,16 @@ func TestCoreAndPluginBinarySizes(t *testing.T) {
 	if out, err := markdownBuild.CombinedOutput(); err != nil {
 		t.Fatalf("markdown-formatter build: %v\n%s", err, out)
 	}
+	ponytailBuild := exec.Command("go", "build", "-o", ponytail, "./plugins/ponytail/cmd/ponytail")
+	ponytailBuild.Dir = root
+	if out, err := ponytailBuild.CombinedOutput(); err != nil {
+		t.Fatalf("ponytail build: %v\n%s", err, out)
+	}
+	cavemanBuild := exec.Command("go", "build", "-o", caveman, "./plugins/caveman/cmd/caveman")
+	cavemanBuild.Dir = root
+	if out, err := cavemanBuild.CombinedOutput(); err != nil {
+		t.Fatalf("caveman build: %v\n%s", err, out)
+	}
 	coreInfo, err := os.Stat(core)
 	if err != nil {
 		t.Fatal(err)
@@ -98,7 +114,15 @@ func TestCoreAndPluginBinarySizes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("core=%d cf-tunnel=%d secure-mcp-tunnel=%d tui=%d markdown-formatter=%d", coreInfo.Size(), pluginInfo.Size(), secureInfo.Size(), tuiInfo.Size(), markdownInfo.Size())
+	ponytailInfo, err := os.Stat(ponytail)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cavemanInfo, err := os.Stat(caveman)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("core=%d cf-tunnel=%d secure-mcp-tunnel=%d tui=%d markdown-formatter=%d ponytail=%d caveman=%d", coreInfo.Size(), pluginInfo.Size(), secureInfo.Size(), tuiInfo.Size(), markdownInfo.Size(), ponytailInfo.Size(), cavemanInfo.Size())
 }
 
 func moduleRoot(t *testing.T) string {

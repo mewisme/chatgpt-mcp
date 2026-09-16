@@ -6,8 +6,6 @@ import (
 
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
-	cavemanplugin "go.mewis.me/chatgpt-mcp/plugins/caveman"
-	ponytailplugin "go.mewis.me/chatgpt-mcp/plugins/ponytail"
 )
 
 func migrateLegacyFeatureSettings(configPath string, data []byte, _ *Config) error {
@@ -96,7 +94,21 @@ type featurePluginSetting struct {
 
 func builtinFeatureSettings(src legacyFeatures) []featurePluginSetting {
 	return []featurePluginSetting{
-		{ponytailplugin.Plugin().ID, ponytailplugin.Plugin().Schema, map[string]any{"default_active": src.Ponytail.Active, "default_mode": src.Ponytail.Mode}},
-		{cavemanplugin.Plugin().ID, cavemanplugin.Plugin().Schema, map[string]any{"default_active": src.Caveman.Active, "default_mode": src.Caveman.Mode}},
+		{"ponytail", ponytailSettingsSchema(), map[string]any{"default_active": src.Ponytail.Active, "default_mode": src.Ponytail.Mode}},
+		{"caveman", cavemanSettingsSchema(), map[string]any{"default_active": src.Caveman.Active, "default_mode": src.Caveman.Mode}},
 	}
+}
+
+func ponytailSettingsSchema() pluginpkg.SettingsSchema {
+	return pluginpkg.SettingsSchema{Fields: []pluginpkg.SettingField{
+		{Key: "default_active", Kind: pluginpkg.FieldBool, Title: "Default active", Description: "controls whether Ponytail guidance is active by default", Default: true},
+		{Key: "default_mode", Kind: pluginpkg.FieldEnum, Title: "Default mode", Description: "sets the default Ponytail intensity", Enum: []string{"lite", "full", "ultra"}, Default: "full"},
+	}}
+}
+
+func cavemanSettingsSchema() pluginpkg.SettingsSchema {
+	return pluginpkg.SettingsSchema{Fields: []pluginpkg.SettingField{
+		{Key: "default_active", Kind: pluginpkg.FieldBool, Title: "Default active", Description: "controls whether Caveman response style is active by default", Default: true},
+		{Key: "default_mode", Kind: pluginpkg.FieldEnum, Title: "Default mode", Description: "sets the default Caveman response intensity", Enum: []string{"lite", "full", "ultra", "wenyan-lite", "wenyan-full", "wenyan-ultra"}, Default: "full"},
+	}}
 }

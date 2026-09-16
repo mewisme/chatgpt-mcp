@@ -1,0 +1,67 @@
+{
+  "schema": 2,
+  "id": "caveman",
+  "name": "Caveman",
+  "publisher": "mewisme",
+  "version": "1.0.0",
+  "type": "tool-provider",
+  "scopes": ["global"],
+  "requires": {
+    "chatgpt-mcp": ">=0.2.25"
+  },
+  "provides": [
+    "tool-provider/caveman"
+  ],
+  "permissions": [],
+  "config": {
+    "fields": [
+      {
+        "key": "default_active",
+        "type": "boolean",
+        "title": "Default active",
+        "description": "controls whether Caveman response style is active by default",
+        "default": true
+      },
+      {
+        "key": "default_mode",
+        "type": "enum",
+        "title": "Default mode",
+        "description": "sets the default Caveman response intensity",
+        "enum": ["lite", "full", "ultra", "wenyan-lite", "wenyan-full", "wenyan-ultra"],
+        "default": "full"
+      }
+    ]
+  },
+  "platforms": {
+    "linux/amd64": {
+      "artifact": "caveman-1.0.0-linux-amd64.zip",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "archive": "zip",
+      "entrypoint": "caveman"
+    },
+    "linux/arm64": {
+      "artifact": "caveman-1.0.0-linux-arm64.zip",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "archive": "zip",
+      "entrypoint": "caveman"
+    },
+    "darwin/amd64": {
+      "artifact": "caveman-1.0.0-darwin-amd64.zip",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "archive": "zip",
+      "entrypoint": "caveman"
+    },
+    "darwin/arm64": {
+      "artifact": "caveman-1.0.0-darwin-arm64.zip",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "archive": "zip",
+      "entrypoint": "caveman"
+    },
+    "windows/amd64": {
+      "artifact": "caveman-1.0.0-windows-amd64.zip",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "archive": "zip",
+      "entrypoint": "caveman.exe"
+    }
+  }
+}

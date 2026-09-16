@@ -12,7 +12,10 @@ import (
 	"testing"
 	"time"
 
+	"go.mewis.me/chatgpt-mcp/internal/caveman"
+	"go.mewis.me/chatgpt-mcp/internal/ponytail"
 	"go.mewis.me/chatgpt-mcp/internal/tools"
+	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
 func modernRequest(method, body string) *http.Request {
@@ -161,12 +164,10 @@ func TestHTTPRuntimeToolCallRequiresMatchingNameHeader(t *testing.T) {
 
 func TestHTTPRuntimePonytailUsesBuiltInConfiguredMode(t *testing.T) {
 	toolRuntime := tools.NewRuntime()
-	if err := toolRuntime.ApplyPluginSettings(map[string]map[string]any{
+	installTurnControllers(t, toolRuntime, map[string]map[string]any{
 		"ponytail": {"default_active": true, "default_mode": "ultra"},
 		"caveman":  {"default_active": true, "default_mode": "full"},
-	}); err != nil {
-		t.Fatal(err)
-	}
+	})
 	item, err := toolRuntime.Workspaces.Register(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -189,12 +190,10 @@ func TestHTTPRuntimePonytailUsesBuiltInConfiguredMode(t *testing.T) {
 
 func TestHTTPRuntimeCavemanUsesBuiltInConfiguredMode(t *testing.T) {
 	toolRuntime := tools.NewRuntime()
-	if err := toolRuntime.ApplyPluginSettings(map[string]map[string]any{
+	installTurnControllers(t, toolRuntime, map[string]map[string]any{
 		"ponytail": {"default_active": true, "default_mode": "full"},
 		"caveman":  {"default_active": true, "default_mode": "wenyan-ultra"},
-	}); err != nil {
-		t.Fatal(err)
-	}
+	})
 	item, err := toolRuntime.Workspaces.Register(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -216,6 +215,65 @@ func TestHTTPRuntimeCavemanUsesBuiltInConfiguredMode(t *testing.T) {
 	if strings.Contains(res.Body.String(), "| **full** |") {
 		t.Fatalf("response retained inactive Caveman intensity row: %s", res.Body.String())
 	}
+}
+
+func installTurnControllers(t *testing.T, runtime *tools.Runtime, settings map[string]map[string]any) {
+	t.Helper()
+	pony := ponytail.NewManager(true, ponytail.Full)
+	cave := caveman.NewManager(true, caveman.Full)
+	runtime.EnsurePluginSessions(func() []tools.PluginSession {
+		return []tools.PluginSession{
+			{
+				Owner: "ponytail",
+				Apply: func(values map[string]any) {
+					pony.SetDefaults(boolSetting(values, "default_active", true), ponytail.Mode(stringSetting(values, "default_mode", "full")))
+				},
+				Tools: func(workspaces *workspace.Manager) map[string]tools.Entry {
+					return map[string]tools.Entry{"ponytail_turn": tools.TurnControllerTool(workspaces, "ponytail_turn", "Ponytail Turn Controller", "Ponytail controller.", `"off","lite","full","ultra","review"`, func(workspaceID, prompt, action string) (any, error) {
+						return pony.Turn(workspaceID, prompt, action)
+					})}
+				},
+			},
+			{
+				Owner: "caveman",
+				Apply: func(values map[string]any) {
+					cave.SetDefaults(boolSetting(values, "default_active", true), caveman.Mode(stringSetting(values, "default_mode", "full")))
+				},
+				Tools: func(workspaces *workspace.Manager) map[string]tools.Entry {
+					return map[string]tools.Entry{"caveman_turn": tools.TurnControllerTool(workspaces, "caveman_turn", "Caveman Turn Controller", "Caveman controller.", `"off","lite","full","ultra","wenyan-lite","wenyan-full","wenyan-ultra"`, func(workspaceID, prompt, action string) (any, error) {
+						return cave.Turn(workspaceID, prompt, action)
+					})}
+				},
+			},
+		}
+	})
+	if err := runtime.ApplyPluginSettings(settings); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func boolSetting(values map[string]any, key string, fallback bool) bool {
+	raw, ok := values[key]
+	if !ok {
+		return fallback
+	}
+	value, ok := raw.(bool)
+	if !ok {
+		return fallback
+	}
+	return value
+}
+
+func stringSetting(values map[string]any, key, fallback string) string {
+	raw, ok := values[key]
+	if !ok {
+		return fallback
+	}
+	value, ok := raw.(string)
+	if !ok || value == "" {
+		return fallback
+	}
+	return value
 }
 
 func TestHTTPRuntimePropagatesSessionID(t *testing.T) {

@@ -5,7 +5,7 @@ import pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
 func Plugin() pluginpkg.Builtin {
 	return pluginpkg.Builtin{
 		ID: "ponytail", Name: "Ponytail", Type: "tool-provider", Description: "Smallest-correct-solution coding guidance",
-		Provides: []pluginpkg.Capability{"tool/ponytail"}, DefaultEnabled: true,
+		Provides: []pluginpkg.Capability{"tool-provider/ponytail"}, DefaultEnabled: true,
 		Scopes: []pluginpkg.PluginScope{pluginpkg.ScopeGlobal},
 		Schema: pluginpkg.SettingsSchema{Fields: []pluginpkg.SettingField{
 			{Key: "default_active", Kind: pluginpkg.FieldBool, Title: "Default active", Description: "controls whether Ponytail guidance is active by default", Default: true},

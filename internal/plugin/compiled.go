@@ -24,3 +24,7 @@ func compiledBuiltin(id PluginID) (Builtin, bool) {
 	defer compiledMu.RUnlock()
 	return compiledBuiltins.Lookup(id)
 }
+
+func CompiledBuiltins() BuiltinRegistry {
+	return compiledBuiltinClone()
+}

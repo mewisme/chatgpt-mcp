@@ -156,20 +156,32 @@ func (d *doctorState) checkPluginTUI(_ context.Context) doctorResult {
 }
 
 func (d *doctorState) checkPluginMarkdownFormatter(_ context.Context) doctorResult {
+	return d.checkOptionalCorePlugin("markdown-formatter", "Markdown formatter")
+}
+
+func (d *doctorState) checkPluginPonytail(_ context.Context) doctorResult {
+	return d.checkOptionalCorePlugin("ponytail", "Ponytail")
+}
+
+func (d *doctorState) checkPluginCaveman(_ context.Context) doctorResult {
+	return d.checkOptionalCorePlugin("caveman", "Caveman")
+}
+
+func (d *doctorState) checkOptionalCorePlugin(id, label string) doctorResult {
 	if d.store == nil {
 		return doctorResult{Status: doctorSkip, Summary: "plugin store unavailable"}
 	}
-	id := pluginpkg.PluginID("markdown-formatter")
-	if entry, ok := d.lock.Plugins[id]; ok && entry.Enabled {
-		if _, err := d.store.Installed(id, entry.Version); err != nil {
-			return doctorResult{Status: doctorFail, Summary: "Markdown formatter plugin is enabled but its payload is missing", Error: redact.Text(err.Error()), Hint: "run cgm plugin install markdown-formatter"}
+	pluginID := pluginpkg.PluginID(id)
+	if entry, ok := d.lock.Plugins[pluginID]; ok && entry.Enabled {
+		if _, err := d.store.Installed(pluginID, entry.Version); err != nil {
+			return doctorResult{Status: doctorFail, Summary: label + " plugin is enabled but its payload is missing", Error: redact.Text(err.Error()), Hint: "run cgm plugin install " + id}
 		}
-		return doctorResult{Status: doctorPass, Summary: "Markdown formatter plugin is installed"}
+		return doctorResult{Status: doctorPass, Summary: label + " plugin is installed"}
 	}
-	if entry, ok := d.lock.Plugins[id]; ok && !entry.Enabled {
-		return doctorResult{Status: doctorWarn, Summary: "Markdown formatter core plugin is installed but disabled", Hint: "run cgm plugin enable markdown-formatter"}
+	if entry, ok := d.lock.Plugins[pluginID]; ok && !entry.Enabled {
+		return doctorResult{Status: doctorWarn, Summary: label + " core plugin is installed but disabled", Hint: "run cgm plugin enable " + id}
 	}
-	return doctorResult{Status: doctorWarn, Summary: "Markdown formatter core plugin is not installed", Hint: "run cgm plugin install markdown-formatter"}
+	return doctorResult{Status: doctorWarn, Summary: label + " core plugin is not installed", Hint: "run cgm plugin install " + id}
 }
 
 func sortedPluginIDs(lock pluginpkg.LockFile) []pluginpkg.PluginID {

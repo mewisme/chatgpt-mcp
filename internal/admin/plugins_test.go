@@ -10,9 +10,13 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/application"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
+	cavemanplugin "go.mewis.me/chatgpt-mcp/plugins/caveman"
+	ponytailplugin "go.mewis.me/chatgpt-mcp/plugins/ponytail"
 )
 
 func TestPluginConfigAPIGetPutReset(t *testing.T) {
+	pluginpkg.SetCompiledBuiltins(pluginpkg.BuiltinRegistry{ponytailplugin.Plugin(), cavemanplugin.Plugin()})
+	t.Cleanup(func() { pluginpkg.SetCompiledBuiltins(nil) })
 	t.Setenv(configformat.EnvConfigDir, t.TempDir())
 	service, err := application.NewPluginService()
 	if err != nil {

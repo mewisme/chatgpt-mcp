@@ -150,6 +150,54 @@
           "path": "payload/markdown-formatter"
         }
       }
+    },
+    {
+      "id": "ponytail",
+      "core": {
+        "required": false,
+        "enabled": true
+      },
+      "build": {
+        "runner": "ubuntu-latest",
+        "command": [
+          "go",
+          "run",
+          "./plugins/ponytail/build",
+          "-output",
+          "{output}"
+        ]
+      },
+      "smoke": {
+        "runner": "ubuntu-latest",
+        "probe": {
+          "kind": "file",
+          "path": "payload/ponytail"
+        }
+      }
+    },
+    {
+      "id": "caveman",
+      "core": {
+        "required": false,
+        "enabled": true
+      },
+      "build": {
+        "runner": "ubuntu-latest",
+        "command": [
+          "go",
+          "run",
+          "./plugins/caveman/build",
+          "-output",
+          "{output}"
+        ]
+      },
+      "smoke": {
+        "runner": "ubuntu-latest",
+        "probe": {
+          "kind": "file",
+          "path": "payload/caveman"
+        }
+      }
     }
   ]
 }

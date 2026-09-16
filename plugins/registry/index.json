@@ -99,6 +99,38 @@
       "versions": {
         "1.0.0": "markdown-formatter-1.0.0.json"
       }
+    },
+    "ponytail": {
+      "publisher": "mewisme",
+      "name": "Ponytail",
+      "description": "Smallest-correct-solution coding guidance",
+      "type": "tool-provider",
+      "scopes": ["global"],
+      "provides": ["tool-provider/ponytail"],
+      "core": {
+        "required": false,
+        "enabled": true
+      },
+      "stable": "1.0.0",
+      "versions": {
+        "1.0.0": "ponytail-1.0.0.json"
+      }
+    },
+    "caveman": {
+      "publisher": "mewisme",
+      "name": "Caveman",
+      "description": "Compressed assistant prose while preserving technical meaning",
+      "type": "tool-provider",
+      "scopes": ["global"],
+      "provides": ["tool-provider/caveman"],
+      "core": {
+        "required": false,
+        "enabled": true
+      },
+      "stable": "1.0.0",
+      "versions": {
+        "1.0.0": "caveman-1.0.0.json"
+      }
     }
   }
 }

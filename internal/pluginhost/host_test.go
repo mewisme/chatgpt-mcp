@@ -4,44 +4,29 @@ import (
 	"testing"
 
 	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
+	"go.mewis.me/chatgpt-mcp/internal/testutil"
 	"go.mewis.me/chatgpt-mcp/internal/tools"
 )
 
-func TestBuiltinsIncludePonytailAndCaveman(t *testing.T) {
+func TestBuiltinsAreEmpty(t *testing.T) {
 	registry := Builtins()
 	if err := registry.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := registry.Lookup("ponytail"); !ok {
-		t.Fatal("ponytail builtin missing")
-	}
-	if _, ok := registry.Lookup("caveman"); !ok {
-		t.Fatal("caveman builtin missing")
-	}
-	if _, ok := registry.Lookup("cf-tunnel"); ok {
-		t.Fatal("cf-tunnel must not be a compiled builtin")
-	}
-	ponytail, _ := registry.Lookup("ponytail")
-	if ponytail.Lifecycle().Install || ponytail.Lifecycle().Uninstall || !ponytail.Lifecycle().Configure {
-		t.Fatalf("ponytail lifecycle = %#v", ponytail.Lifecycle())
-	}
-	for _, id := range []pluginpkg.PluginID{"ponytail", "caveman"} {
-		builtin, _ := registry.Lookup(id)
-		scopes := builtin.AllowedScopes()
-		if len(scopes) != 1 || scopes[0] != pluginpkg.ScopeGlobal {
-			t.Fatalf("%s scopes = %#v", id, scopes)
-		}
+	if len(registry) != 0 {
+		t.Fatalf("compiled builtins = %#v", registry)
 	}
 }
 
-func TestSyncToolsRegistersTurnControllers(t *testing.T) {
+func TestSyncToolsWithoutPluginsLeavesTurnControllersUnregistered(t *testing.T) {
+	testutil.UseConfigRoot(t, t.TempDir())
 	Install()
 	runtime := tools.NewRuntime()
-	if _, ok := runtime.Registry.Schema("ponytail_turn"); !ok {
-		t.Fatal("ponytail_turn missing")
+	if _, ok := runtime.Registry.Schema("ponytail_turn"); ok {
+		t.Fatal("ponytail_turn registered without plugin")
 	}
-	if _, ok := runtime.Registry.Schema("caveman_turn"); !ok {
-		t.Fatal("caveman_turn missing")
+	if _, ok := runtime.Registry.Schema("caveman_turn"); ok {
+		t.Fatal("caveman_turn registered without plugin")
 	}
 }
 

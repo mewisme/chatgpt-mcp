@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { access, copyFile, mkdir, readFile, rm, stat } from "node:fs/promises"
+import { access, copyFile, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -92,6 +92,51 @@ export async function smokePlugin(workflow, id) {
   }
 }
 
+export function corePlugins(workflow) {
+  return workflow.plugins.filter(plugin => plugin.core)
+}
+
+export function currentPlatform() {
+  const os = process.platform === "win32" ? "windows" : process.platform === "darwin" ? "darwin" : "linux"
+  const arch = process.arch === "arm64" ? "arm64" : "amd64"
+  return `${os}/${arch}`
+}
+
+export function corePluginsForPlatform(workflow, platform = currentPlatform()) {
+  return corePlugins(workflow).filter(plugin => platformAllowed(plugin.core, platform))
+}
+
+export function resolveBundleOutput(outputRoot) {
+  const output = resolve(root, outputRoot)
+  const rel = relative(root, output)
+  if (!rel || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) throw new Error(`dev bundle output escapes repository: ${outputRoot}`)
+  return output
+}
+
+export async function buildDevBundle(workflow, outputRoot, platform = currentPlatform()) {
+  const output = resolveBundleOutput(outputRoot)
+  await mkdir(output, { recursive: true })
+  const items = []
+  for (const plugin of corePluginsForPlatform(workflow, platform)) {
+    const pluginOut = resolve(output, plugin.id)
+    const manifestPath = await buildPlugin(workflow, plugin.id, pluginOut)
+    items.push({
+      id: plugin.id,
+      required: plugin.core.required === true,
+      enabled: plugin.core.enabled !== false,
+      manifest: relative(output, manifestPath).split(sep).join("/")
+    })
+  }
+  const bundle = { schema: 1, origin: "local-dev", platform, plugins: items }
+  await writeFile(resolve(output, "bundle.json"), `${JSON.stringify(bundle, null, 2)}\n`)
+  return bundle
+}
+
+function platformAllowed(core, platform) {
+  if (!core?.platforms?.length) return true
+  return core.platforms.includes(platform)
+}
+
 function validateBuild(plugin) {
   const build = plugin.build
   if (!build || typeof build.runner !== "string" || !build.runner.trim()) throw new Error(`plugin workflow ${plugin.id} requires build.runner`)
@@ -173,7 +218,7 @@ function goExecutable() {
 
 function run(command, args, options = {}) {
   const capture = options.capture === true
-  const result = spawnSync(command, args, { cwd: root, encoding: capture ? "utf8" : undefined, stdio: capture ? ["ignore", "pipe", "pipe"] : "inherit", windowsHide: true })
+  const result = spawnSync(command, args, { cwd: root, encoding: capture ? "utf8" : undefined, stdio: capture ? ["ignore", "pipe", "pipe"] : "inherit", windowsHide: true, env: { ...process.env, CHATGPT_MCP_DEV_PLUGINS: "off" } })
   if (result.error) throw result.error
   if (result.status !== 0) {
     const details = capture ? `\n${result.stdout ?? ""}${result.stderr ?? ""}` : ""
@@ -203,7 +248,12 @@ async function main() {
     await smokePlugin(workflow, arg1)
     return
   }
-  throw new Error("usage: plugin-workflow.mjs validate | matrix <build|smoke> | build <plugin-id> <output-dir> | smoke <plugin-id>")
+  if (operation === "dev-bundle") {
+    if (!arg1) throw new Error("usage: plugin-workflow.mjs dev-bundle <output-dir> [os/arch]")
+    await buildDevBundle(workflow, arg1, arg2 || currentPlatform())
+    return
+  }
+  throw new Error("usage: plugin-workflow.mjs validate | matrix <build|smoke> | build <plugin-id> <output-dir> | smoke <plugin-id> | dev-bundle <output-dir> [os/arch]")
 }
 
 const invoked = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)

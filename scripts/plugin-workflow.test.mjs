@@ -4,7 +4,7 @@ import { tmpdir } from "node:os"
 import { resolve } from "node:path"
 import test from "node:test"
 
-import { buildPlugin, loadWorkflow, validateRepositoryWorkflow, validateWorkflow, workflowMatrix } from "./plugin-workflow.mjs"
+import { buildDevBundle, buildPlugin, corePlugins, corePluginsForPlatform, loadWorkflow, resolveBundleOutput, validateRepositoryWorkflow, validateWorkflow, workflowMatrix } from "./plugin-workflow.mjs"
 
 test("admin-ui frontend lives in the plugin directory", async () => {
   await access(resolve("plugins/admin-ui/package.json"), constants.F_OK)
@@ -72,5 +72,41 @@ test("manifest-only build copies the versioned source manifest", async () => {
     assert.equal(manifest.version, source.version)
   } finally {
     await rm(output, { recursive: true, force: true })
+  }
+})
+
+test("core plugin selection is workflow metadata, not a hardcoded list", async () => {
+  const workflow = await loadWorkflow()
+  assert.deepEqual(corePlugins(workflow).map(plugin => plugin.id), workflow.plugins.filter(plugin => plugin.core).map(plugin => plugin.id))
+  const filtered = corePluginsForPlatform({
+    schema: 1,
+    plugins: [
+      { id: "all", build: { runner: "ubuntu-latest", mode: "manifest" }, core: { required: false, enabled: true } },
+      { id: "windows-only", build: { runner: "ubuntu-latest", mode: "manifest" }, core: { required: false, enabled: true, platforms: ["windows/amd64"] } },
+      { id: "optional", build: { runner: "ubuntu-latest", mode: "manifest" } }
+    ]
+  }, "linux/amd64").map(plugin => plugin.id)
+  assert.deepEqual(filtered, ["all"])
+})
+
+test("dev bundle output stays inside the repository", () => {
+  assert.throws(() => resolveBundleOutput(".."), /escapes repository/)
+  assert.throws(() => resolveBundleOutput("../outside"), /escapes repository/)
+  assert.match(resolveBundleOutput(".cgm/dev/bundle"), /\.cgm[\\/]+dev[\\/]+bundle$/)
+})
+
+test("dev bundle with no matching core plugins still writes metadata", async () => {
+  const output = ".cgm/dev/bundle-empty-test"
+  try {
+    const bundle = await buildDevBundle({
+      schema: 1,
+      plugins: [{ id: "optional", build: { runner: "ubuntu-latest", mode: "manifest" } }]
+    }, output, "linux/amd64")
+    assert.equal(bundle.origin, "local-dev")
+    assert.deepEqual(bundle.plugins, [])
+    const written = JSON.parse(await readFile(resolve(output, "bundle.json"), "utf8"))
+    assert.deepEqual(written.plugins, [])
+  } finally {
+    await rm(resolve(output), { recursive: true, force: true })
   }
 })

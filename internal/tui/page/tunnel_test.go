@@ -1007,8 +1007,11 @@ func TestTunnelAdminsPageRefreshRemoveFinishAndMouseTargets(t *testing.T) {
 	}
 	updated, follow := page.Update(tunnelAdminResultMsg{command: TunnelAdminRemove, id: "raw"})
 	page = updated.(*TunnelAdminsPage)
-	if follow != nil {
-		t.Fatalf("list remove unexpectedly navigated: %#v", follow)
+	if follow == nil {
+		t.Fatal("list remove missing operation result")
+	}
+	if _, ok := follow().(NavigateMsg); ok {
+		t.Fatal("list remove unexpectedly navigated")
 	}
 	if page.notice != "Admin profile removed" || len(page.items) != 2 {
 		t.Fatalf("remove finish notice=%q items=%d", page.notice, len(page.items))
@@ -1019,9 +1022,9 @@ func TestTunnelAdminsPageRefreshRemoveFinishAndMouseTargets(t *testing.T) {
 	}
 	updated, follow = detail.Update(tunnelAdminResultMsg{command: TunnelAdminRemove, id: "work"})
 	detail = updated.(*TunnelAdminsPage)
-	nav, ok := follow().(NavigateMsg)
+	nav, ok := navigateMsg(follow)
 	if !ok || strings.Join(nav.Path, "/") != "admins" || !nav.Replace {
-		t.Fatalf("detail remove navigation=%#v", follow)
+		t.Fatalf("detail remove navigation=%#v", nav)
 	}
 	_ = detail
 }

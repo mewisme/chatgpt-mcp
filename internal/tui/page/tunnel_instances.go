@@ -455,7 +455,7 @@ func (page *TunnelInstancesPage) finishCommand(msg localTunnelResultMsg) tea.Cmd
 		page.items = items
 		page.notice = localTunnelSuccess(msg.command)
 		if page.resourceID == msg.id {
-			return func() tea.Msg { return NavigateMsg{Path: []string{"tunnel"}, Replace: true} }
+			return withOperation("tunnel.local.action", "Tunnel", page.notice, func() tea.Msg { return NavigateMsg{Path: []string{"tunnel"}, Replace: true} })
 		}
 	} else if msg.command == LocalTunnelRefresh {
 		page.items, page.admins = msg.items, msg.admins
@@ -470,10 +470,10 @@ func (page *TunnelInstancesPage) finishCommand(msg localTunnelResultMsg) tea.Cmd
 	}
 	if page.resourceID != "" {
 		page.err = page.syncDetail()
-		return nil
+		return withOperation("tunnel.local.action", "Tunnel", page.notice, nil)
 	}
 	selected, _ := page.browser.Selected()
-	return page.browser.ReplaceRows(page.rows(), selected.ID)
+	return withOperation("tunnel.local.action", "Tunnel", page.notice, page.browser.ReplaceRows(page.rows(), selected.ID))
 }
 
 func (page *TunnelInstancesPage) updateConfirm(msg tea.KeyPressMsg) tea.Cmd {

@@ -86,6 +86,14 @@ func beginOperation(key, title, pending string, work tea.Cmd) tea.Cmd {
 	return tea.Batch(OperationStarted(key, title, pending), work)
 }
 
+func withOperation(key, title, message string, next tea.Cmd) tea.Cmd {
+	result := func() tea.Msg { return OperationResult(key, title, message, nil) }
+	if next == nil {
+		return result
+	}
+	return tea.Batch(next, result)
+}
+
 func pageFeedbackHeight(value string) int {
 	if strings.TrimSpace(value) == "" {
 		return 0

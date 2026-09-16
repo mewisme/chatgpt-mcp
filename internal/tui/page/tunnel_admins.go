@@ -460,7 +460,7 @@ func (page *TunnelAdminsPage) finishCommand(msg tunnelAdminResultMsg) tea.Cmd {
 		page.items = items
 		page.notice = "Admin profile removed"
 		if page.resourceID == msg.id {
-			return func() tea.Msg { return NavigateMsg{Path: []string{"admins"}, Replace: true} }
+			return withOperation("tunnel.admin.remove", "Admin Profile", page.notice, func() tea.Msg { return NavigateMsg{Path: []string{"admins"}, Replace: true} })
 		}
 	case TunnelAdminRefresh:
 		page.items = msg.items
@@ -468,10 +468,10 @@ func (page *TunnelAdminsPage) finishCommand(msg tunnelAdminResultMsg) tea.Cmd {
 	}
 	if page.resourceID != "" {
 		page.err = page.syncDetail()
-		return nil
+		return withOperation("tunnel.admin.action", "Admin Profile", page.notice, nil)
 	}
 	selected, _ := page.browser.Selected()
-	return page.browser.ReplaceRows(page.rows(), selected.ID)
+	return withOperation("tunnel.admin.action", "Admin Profile", page.notice, page.browser.ReplaceRows(page.rows(), selected.ID))
 }
 
 func (page *TunnelAdminsPage) acceptAdminEditorSuccess() {

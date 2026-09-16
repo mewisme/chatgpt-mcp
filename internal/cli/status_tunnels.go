@@ -94,26 +94,9 @@ func buildStatusTunnelViewsFromItems(items []runtimecontrol.TunnelRuntimeStatus,
 		})
 	}
 	for i := range views {
-		views[i].Label = statusTunnelLabel(views[i].ID, views[i].Name, counts[views[i].Name] > 1)
+		views[i].Label = tunnel.UniqueLabel(views[i].ID, views[i].Name, counts[views[i].Name] > 1)
 	}
 	return views
-}
-
-func statusTunnelLabel(id, name string, duplicate bool) string {
-	if duplicate && strings.TrimSpace(name) != "" {
-		if short := tunnelShortID(id); short != "" {
-			return strings.TrimSpace(name) + " · " + short
-		}
-	}
-	return tunnel.DisplayLabel(id, name)
-}
-
-func tunnelShortID(id string) string {
-	id = strings.TrimPrefix(strings.TrimSpace(id), "tunnel_")
-	if len(id) <= 8 {
-		return id
-	}
-	return id[len(id)-8:]
 }
 
 func statusTunnelSummaryLine(running bool, summary runtimecontrol.TunnelSummary, views []statusTunnelView) string {

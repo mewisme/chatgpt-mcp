@@ -297,16 +297,22 @@ func (page *TunnelInstancesPage) reload() error {
 }
 
 func (page *TunnelInstancesPage) rows() []component.Row {
+	ids := make([]string, len(page.items))
+	names := make([]string, len(page.items))
+	for i, item := range page.items {
+		ids[i], names[i] = item.ID, localTunnelName(item)
+	}
+	labels := tunnel.UniqueLabels(ids, names)
 	rows := make([]component.Row, 0, len(page.items))
-	for _, item := range page.items {
+	for i, item := range page.items {
 		state := localTunnelState(item)
 		description := ""
 		if item.AdminProfileID != "" {
 			description = "admin=" + item.AdminProfileID
 		}
 		rows = append(rows, component.Row{
-			ID: item.ID, Title: localTunnelLabel(item), Description: description, Meta: state,
-			Search: strings.Join([]string{item.ID, localTunnelName(item), item.AdminProfileID, item.OrganizationID, item.ControlPlaneBaseURL, state}, " "),
+			ID: item.ID, Title: labels[i], Description: description, Meta: state,
+			Search: strings.Join([]string{item.ID, names[i], item.AdminProfileID, item.OrganizationID, item.ControlPlaneBaseURL, state}, " "),
 		})
 	}
 	return rows

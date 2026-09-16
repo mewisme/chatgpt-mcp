@@ -347,6 +347,45 @@ describe("TunnelPage", () => {
     ).toBeUndefined()
   })
 
+  it("disambiguates duplicate tunnel names with short ids", async () => {
+    const dupA = "tunnel_aaaaaaaaaaaaaaaaaaaaaaaac3330bcd"
+    const dupB = "tunnel_bbbbbbbbbbbbbbbbbbbbbbb3ce094ac"
+    vi.mocked(adminApi.localTunnels).mockResolvedValue([
+      {
+        ...localTunnels[0],
+        id: dupA,
+        status: {
+          ...localTunnels[0].status,
+          id: dupA,
+          metadata: {
+            ...localTunnels[0].status.metadata!,
+            id: dupA,
+            name: "Production",
+          },
+        },
+      },
+      {
+        ...localTunnels[0],
+        id: dupB,
+        admin_profile_id: undefined,
+        status: {
+          ...localTunnels[0].status,
+          id: dupB,
+          running: false,
+          ready: false,
+          metadata: {
+            ...localTunnels[0].status.metadata!,
+            id: dupB,
+            name: "Production",
+          },
+        },
+      },
+    ])
+    render(<TunnelPage />)
+    expect(await screen.findByText("Production · c3330bcd")).toBeInTheDocument()
+    expect(screen.getByText("Production · 3ce094ac")).toBeInTheDocument()
+  })
+
   it("requires an explicit admin profile when a managed tunnel is visible to more than one profile", async () => {
     const user = userEvent.setup()
     render(<TunnelPage />)

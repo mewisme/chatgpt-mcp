@@ -274,7 +274,7 @@ func TestLogsFollowStreamsRuntimeEvents(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- cmd.Execute() }()
 	time.Sleep(100 * time.Millisecond)
-	if err := stream.WriteEvent(logger.Event{Time: time.Now(), Level: logger.Info, Kind: logger.KindSuccess, Name: "server.follow", Component: "SERVER", Message: "Followed live event"}); err != nil {
+	if err := stream.WriteEvent(logger.Event{Time: time.Now(), Level: logger.Info, Kind: logger.KindSuccess, Name: "tool.call.completed", Component: "TOOLS", Message: "Followed live event", Fields: []logger.Field{logger.With("source", "tunnel"), logger.With("tunnel", "tunnel_a"), logger.With("tunnel_name", "Alpha")}}); err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(100 * time.Millisecond)
@@ -287,8 +287,9 @@ func TestLogsFollowStreamsRuntimeEvents(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("logs follow did not stop after context cancellation")
 	}
-	if !strings.Contains(output.String(), "Followed live event") {
-		t.Fatalf("follow output = %q", output.String())
+	text := output.String()
+	if !strings.Contains(text, "Followed live event") || !strings.Contains(text, "tunnel_a") && !strings.Contains(text, "Alpha") {
+		t.Fatalf("follow output = %q", text)
 	}
 }
 

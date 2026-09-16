@@ -592,8 +592,14 @@ func (page *TunnelPage) managedFeedback(width int, feedback string) string {
 
 func (page *TunnelPage) managedRows() []component.Row {
 	attached := attachedTunnelIDs()
+	ids := make([]string, len(page.items))
+	names := make([]string, len(page.items))
+	for i, item := range page.items {
+		ids[i], names[i] = item.ID, item.Name
+	}
+	labels := tunnel.UniqueLabels(ids, names)
 	rows := make([]component.Row, 0, len(page.items))
-	for _, item := range page.items {
+	for i, item := range page.items {
 		meta := strings.Join(page.adminsByTunnel[item.ID], ",")
 		if attached[item.ID] {
 			if meta != "" {
@@ -610,7 +616,7 @@ func (page *TunnelPage) managedRows() []component.Row {
 			description += "admin=" + strings.Join(admins, ",")
 		}
 		rows = append(rows, component.Row{
-			ID: item.ID, Title: tunnel.DisplayLabel(item.ID, item.Name), Description: description, Meta: meta,
+			ID: item.ID, Title: labels[i], Description: description, Meta: meta,
 			Search: strings.Join(append(append(append(append([]string{item.ID, item.Name, item.Description}, item.OrganizationIDs...), item.WorkspaceIDs...), item.TenantIDs...), page.adminsByTunnel[item.ID]...), " "),
 		})
 	}

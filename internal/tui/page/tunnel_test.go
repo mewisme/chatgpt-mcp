@@ -138,6 +138,34 @@ func TestManagedAndLocalTunnelRowsPreferLabels(t *testing.T) {
 	}
 }
 
+func TestTunnelCollectionRowsDisambiguateDuplicateLabels(t *testing.T) {
+	dupA, dupB := "tunnel_aaaaaaaaaaaaaaaaaaaaaaaac3330bcd", "tunnel_bbbbbbbbbbbbbbbbbbbbbbb3ce094ac"
+	admins := []tunnel.AdminConfig{{ID: "work", AdminKey: "admin-work", ReadAccess: true, ManageAccess: true}}
+	instances := []tunnel.InstanceConfig{{Enabled: true, ID: dupA, APIKey: "runtime-a"}, {Enabled: true, ID: dupB, APIKey: "runtime-b"}}
+	setupTunnelPageConfig(t, tunnel.Config{Instances: &instances, Admins: &admins})
+	if _, err := config.SaveTunnelMetadata(tunnel.Metadata{ID: dupA, Name: "Production"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := config.SaveTunnelMetadata(tunnel.Metadata{ID: dupB, Name: "Production"}); err != nil {
+		t.Fatal(err)
+	}
+	local, err := NewTunnelInstances(t.Context(), "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	view := ansi.Strip(local.View(120, 32))
+	if !strings.Contains(view, "Production · c3330bcd") || !strings.Contains(view, "Production · 3ce094ac") {
+		t.Fatalf("local duplicates=%q", view)
+	}
+	if strings.Contains(view, dupA) || strings.Contains(view, dupB) {
+		t.Fatalf("local leaked full ids=%q", view)
+	}
+	rows := (&TunnelPage{items: []tunnel.Metadata{{ID: dupA, Name: "Production"}, {ID: dupB, Name: "Production"}}}).managedRows()
+	if len(rows) != 2 || rows[0].Title != "Production · c3330bcd" || rows[1].Title != "Production · 3ce094ac" {
+		t.Fatalf("managed rows=%#v", rows)
+	}
+}
+
 func TestManagedEditorsStayOnAttachedAdminProfile(t *testing.T) {
 	admins := []tunnel.AdminConfig{
 		{ID: "work", AdminKey: "admin-work", WorkspaceID: "ws_admin", ReadAccess: true, ManageAccess: true},

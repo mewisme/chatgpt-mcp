@@ -515,6 +515,12 @@ function LocalTunnelsPanel({
     else await onUpdate(editing, request)
     closeForm()
   }
+  const labels = uniqueTunnelLabels(
+    items.map((item) => ({
+      id: item.id,
+      name: item.status.metadata?.name ?? "",
+    }))
+  )
   return (
     <div className="space-y-4">
       <Card>
@@ -643,11 +649,11 @@ function LocalTunnelsPanel({
       </Card>
       {items.length ? (
         <div className="grid gap-4 xl:grid-cols-2">
-          {items.map((item) => {
+          {items.map((item, index) => {
             const active = item.status.running || item.status.restarting
             const state = tunnelState(item)
             const name = item.status.metadata?.name?.trim()
-            const label = localTunnelLabel(item)
+            const label = labels[index]
             return (
               <Card key={item.id}>
                 <CardHeader>
@@ -832,6 +838,14 @@ function AdminProfilesPanel({
     else await onUpdate(editing, request)
     closeForm()
   }
+  const localLabelByID = Object.fromEntries(
+    uniqueTunnelLabels(
+      locals.map((item) => ({
+        id: item.id,
+        name: item.status.metadata?.name ?? "",
+      }))
+    ).map((label, index) => [locals[index].id, label])
+  )
   return (
     <div className="space-y-4">
       <Card>
@@ -946,7 +960,7 @@ function AdminProfilesPanel({
         {items.map((item) => {
           const usedBy = locals
             .filter((local) => local.admin_profile_id === item.id)
-            .map((local) => localTunnelLabel(local))
+            .map((local) => localLabelByID[local.id])
           return (
             <Card key={item.id}>
               <CardHeader>
@@ -1162,6 +1176,12 @@ function ManagedTunnelsPanel({
     await onDelete(deleteItem.metadata.id, deleteProfile)
     setDeleteItem(null)
   }
+  const labels = uniqueTunnelLabels(
+    items.map((item) => ({
+      id: item.metadata.id,
+      name: item.metadata.name ?? "",
+    }))
+  )
   return (
     <div className="space-y-4">
       <Card>
@@ -1290,7 +1310,7 @@ function ManagedTunnelsPanel({
         </Card>
       ) : (
         <div className="grid gap-4 xl:grid-cols-2">
-          {items.map((item) => {
+          {items.map((item, index) => {
             const metadata = item.metadata
             const isAttached = attached.has(metadata.id)
             const editing = editID === metadata.id
@@ -1303,7 +1323,7 @@ function ManagedTunnelsPanel({
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <div className="flex flex-wrap items-center gap-2">
-                        <CardTitle>{metadata.name || metadata.id}</CardTitle>
+                        <CardTitle>{labels[index]}</CardTitle>
                         {isAttached ? (
                           <Badge variant="secondary">Attached</Badge>
                         ) : null}
@@ -1616,8 +1636,20 @@ function adminScope(item: TunnelAdminProfile) {
   if (item.tenant_id) return `tenant:${item.tenant_id}`
   return "No scope"
 }
-function localTunnelLabel(item: LocalTunnel) {
-  return item.status.metadata?.name?.trim() || item.id
+function uniqueTunnelLabels(items: { id: string; name: string }[]) {
+  const counts = new Map<string, number>()
+  for (const item of items) {
+    const name = item.name.trim()
+    if (name) counts.set(name, (counts.get(name) || 0) + 1)
+  }
+  return items.map((item) => {
+    const name = item.name.trim()
+    if (name && (counts.get(name) || 0) > 1) {
+      const short = item.id.trim().replace(/^tunnel_/, "")
+      return `${name} · ${short.length <= 8 ? short : short.slice(-8)}`
+    }
+    return name || item.id
+  })
 }
 function tunnelState(item: LocalTunnel) {
   if (!item.enabled) return "Disabled"

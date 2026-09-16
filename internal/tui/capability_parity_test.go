@@ -156,3 +156,49 @@ func TestAuthActionTitlesMatchCredentialType(t *testing.T) {
 		}
 	}
 }
+
+func TestTunnelTUIActionsMapToCanonicalCLICommands(t *testing.T) {
+	want := map[string]capability.ID{
+		"tunnel.add":               capability.TunnelAdd,
+		"tunnel.update":            capability.TunnelUpdate,
+		"tunnel.detach":            capability.TunnelDetach,
+		"tunnel.enable":            capability.TunnelEnable,
+		"tunnel.disable":           capability.TunnelDisable,
+		"tunnel.start":             capability.TunnelStart,
+		"tunnel.stop":              capability.TunnelStop,
+		"tunnel.foreground":        capability.TunnelForeground,
+		"tunnel.admin.add":         capability.TunnelAdminAdd,
+		"tunnel.admin.update":      capability.TunnelAdminUpdate,
+		"tunnel.admin.verify":      capability.TunnelAdminVerify,
+		"tunnel.admin.remove":      capability.TunnelAdminRemove,
+		"tunnel.managed.refresh":   capability.TunnelManagedList,
+		"tunnel.managed.create":    capability.TunnelManagedCreate,
+		"tunnel.managed.update":    capability.TunnelManagedUpdate,
+		"tunnel.managed.configure": capability.TunnelAttach,
+		"tunnel.managed.delete":    capability.TunnelManagedDelete,
+	}
+	registry := defaultActionRegistry()
+	for id, cap := range want {
+		spec, ok := capability.Lookup(cap)
+		if !ok {
+			t.Fatalf("missing capability %s", cap)
+		}
+		var item action.Action
+		for _, candidate := range registry.All() {
+			if candidate.ID == id {
+				item = candidate
+				break
+			}
+		}
+		if item.ID == "" {
+			t.Fatalf("missing TUI action %s", id)
+		}
+		got := capability.NormalizePath(strings.Join(item.CommandPath, " "))
+		if got != capability.NormalizePath(spec.CanonicalPath) {
+			t.Errorf("%s CommandPath=%q want %q", id, got, spec.CanonicalPath)
+		}
+		if len(item.Capabilities) != 1 || item.Capabilities[0] != cap {
+			t.Errorf("%s capabilities=%v want %s", id, item.Capabilities, cap)
+		}
+	}
+}

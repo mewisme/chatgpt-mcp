@@ -122,6 +122,15 @@ func Initialize(options InitOptions) (result InitResult, resultErr error) {
 		return InitResult{}, err
 	}
 	validateSpan.EndMessage("Initial configuration validated")
+	restoreMCP, err := replaceMCPToken(mcpToken)
+	if err != nil {
+		return InitResult{}, err
+	}
+	defer func() {
+		if resultErr != nil {
+			_ = restoreMCP()
+		}
+	}()
 	path := source.Path
 	persistSpan := tracepkg.Start(ctx, "CONFIG", "config.persist", "Persisting initial configuration", tracepkg.String("path", path), tracepkg.String("format", string(format)), tracepkg.Bool("replace", source.Exists), tracepkg.Bool("atomic", true))
 	if source.Exists {
@@ -183,7 +192,7 @@ func PurgeStoredSecretsContext(ctx context.Context, root string) error {
 		span.FailMessage("Upstream secret enumeration failed", err)
 		return err
 	}
-	entries = append(entries, secretstore.Name("cluster", "relay-token"))
+	entries = append(entries, secretstore.Name("cluster", "relay-token"), config.MCPTokenSecretName)
 	entries = append(entries, upstreamEntries...)
 	changes := make([]secretstore.Change, 0, len(entries))
 	for _, entry := range entries {

@@ -8,12 +8,19 @@ import (
 
 	"go.mewis.me/chatgpt-mcp/internal/auth"
 	"go.mewis.me/chatgpt-mcp/internal/config"
+	"go.mewis.me/chatgpt-mcp/internal/secretstore"
 	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
+)
+
+var (
+	ErrMCPTokenMissing       = errors.New("direct MCP HTTP token is not configured")
+	ErrMCPTokenNotRevealable = errors.New("direct MCP HTTP token is configured but not stored; rotate once with cgm auth mcp create")
 )
 
 type AuthStatus struct {
 	MCPEnabled              bool
 	MCPConfigured           bool
+	MCPRevealable           bool
 	MCPLegacyBearer         bool
 	AdminEnabled            bool
 	AdminConfigured         bool
@@ -33,7 +40,7 @@ func GetAuthStatusContext(ctx context.Context) (AuthStatus, error) {
 		return AuthStatus{}, err
 	}
 	status := authStatus(cfg)
-	span.EndMessage("Authentication status loaded", tracepkg.Bool("mcp_enabled", status.MCPEnabled), tracepkg.Bool("mcp_configured", status.MCPConfigured), tracepkg.Bool("admin_enabled", status.AdminEnabled), tracepkg.Bool("admin_configured", status.AdminConfigured), tracepkg.Bool("unauthenticated_loopback", status.UnauthenticatedLoopback), tracepkg.Bool("cleartext_http", status.CleartextHTTP))
+	span.EndMessage("Authentication status loaded", tracepkg.Bool("mcp_enabled", status.MCPEnabled), tracepkg.Bool("mcp_configured", status.MCPConfigured), tracepkg.Bool("mcp_revealable", status.MCPRevealable), tracepkg.Bool("admin_enabled", status.AdminEnabled), tracepkg.Bool("admin_configured", status.AdminConfigured), tracepkg.Bool("unauthenticated_loopback", status.UnauthenticatedLoopback), tracepkg.Bool("cleartext_http", status.CleartextHTTP))
 	return status, nil
 }
 
@@ -77,12 +84,23 @@ func RotateAuthToken(ctx context.Context, kind string) (string, AuthStatus, erro
 		return "", AuthStatus{}, err
 	}
 	validateSpan.EndMessage("Authentication configuration validated", tracepkg.String("kind", kind))
+	var restore func() error
+	if kind == "mcp" {
+		restore, err = replaceMCPToken(token)
+		if err != nil {
+			span.FailMessage("Authentication token rotation failed", err)
+			return "", AuthStatus{}, err
+		}
+	}
 	if _, _, err := saveConfigMutation(ctx, previous, cfg); err != nil {
+		if restore != nil {
+			_ = restore()
+		}
 		span.FailMessage("Authentication token rotation failed", err)
 		return "", AuthStatus{}, err
 	}
 	status := authStatus(cfg)
-	span.EndMessage("Authentication token rotated", tracepkg.String("kind", kind), tracepkg.Bool("enabled", authEnabled(status, kind)), tracepkg.Bool("configured", authConfigured(status, kind)))
+	span.EndMessage("Authentication token rotated", tracepkg.String("kind", kind), tracepkg.Bool("enabled", authEnabled(status, kind)), tracepkg.Bool("configured", authConfigured(status, kind)), tracepkg.Bool("revealable", status.MCPRevealable))
 	return token, status, nil
 }
 
@@ -136,6 +154,41 @@ func SetAuthEnabled(ctx context.Context, kind string, enabled bool) (AuthStatus,
 	return status, nil
 }
 
+func RevealMCPToken() (string, error) {
+	cfg, err := config.Load()
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(cfg.Auth.MCPTokenHash) == "" {
+		return "", ErrMCPTokenMissing
+	}
+	token, err := config.GetMCPToken()
+	if errors.Is(err, secretstore.ErrNotFound) || token == "" {
+		return "", ErrMCPTokenNotRevealable
+	}
+	if err != nil {
+		return "", err
+	}
+	if !auth.VerifyToken(token, cfg.Auth.MCPTokenHash) {
+		return "", ErrMCPTokenNotRevealable
+	}
+	return token, nil
+}
+
+func replaceMCPToken(token string) (func() error, error) {
+	previous, err := config.GetMCPToken()
+	if errors.Is(err, secretstore.ErrNotFound) {
+		previous, err = "", nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := config.SetMCPToken(token); err != nil {
+		return nil, err
+	}
+	return func() error { return config.SetMCPToken(previous) }, nil
+}
+
 func normalizeAuthKind(kind string) (string, error) {
 	kind = strings.ToLower(strings.TrimSpace(kind))
 	if kind != "mcp" && kind != "admin" {
@@ -145,12 +198,21 @@ func normalizeAuthKind(kind string) (string, error) {
 }
 
 func authStatus(cfg config.Config) AuthStatus {
-	return AuthStatus{
+	status := AuthStatus{
 		MCPEnabled: cfg.Auth.MCPEnabled, MCPConfigured: cfg.Auth.MCPTokenHash != "", MCPLegacyBearer: cfg.Auth.MCPLegacyBearer,
 		AdminEnabled: cfg.Auth.AdminEnabled, AdminConfigured: cfg.Auth.AdminTokenHash != "",
 		UnauthenticatedLoopback: config.UnauthenticatedLoopbackActive(cfg),
 		CleartextHTTP:           config.CleartextHTTPActive(cfg),
 	}
+	if status.MCPConfigured {
+		status.MCPRevealable = mcpTokenRevealable(cfg.Auth.MCPTokenHash)
+	}
+	return status
+}
+
+func mcpTokenRevealable(hash string) bool {
+	token, err := config.GetMCPToken()
+	return err == nil && token != "" && auth.VerifyToken(token, hash)
 }
 
 func authEnabled(status AuthStatus, kind string) bool {

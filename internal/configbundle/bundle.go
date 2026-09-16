@@ -365,18 +365,23 @@ func collectSecrets(root string) (map[string]string, error) {
 		return nil, err
 	}
 	add(upstreamEntries)
-	optionalRelay := secretstore.Name("cluster", "relay-token")
-	names := make([]string, 0, len(required)+1)
+	optional := map[string]bool{
+		secretstore.Name("cluster", "relay-token"): true,
+		config.MCPTokenSecretName:                  true,
+	}
+	names := make([]string, 0, len(required)+len(optional))
 	for name := range required {
 		names = append(names, name)
 	}
-	names = append(names, optionalRelay)
+	for name := range optional {
+		names = append(names, name)
+	}
 	sort.Strings(names)
 	store := secretstore.New(root)
 	result := map[string]string{}
 	for _, name := range names {
 		value, err := store.Get(name)
-		if errors.Is(err, secretstore.ErrNotFound) && name == optionalRelay {
+		if errors.Is(err, secretstore.ErrNotFound) && optional[name] {
 			continue
 		}
 		if err != nil {

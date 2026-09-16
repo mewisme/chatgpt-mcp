@@ -945,6 +945,12 @@ func (page *RuntimePage) authItem(kind string) runtimeItem {
 		if page.auth.MCPLegacyBearer {
 			legacyBearer = "enabled"
 		}
+		security = "Direct MCP HTTP token is stored encrypted and can be revealed."
+		if configured && !page.auth.MCPRevealable {
+			configuredText = "configured, rotate to reveal"
+			description = state + " · token " + configuredText + " · /mcp only"
+			security = "Token hash is present but plaintext is not stored. Rotate once to make it revealable."
+		}
 	}
 	if page.auth.UnauthenticatedLoopback && !enabled {
 		security = config.UnauthenticatedLoopbackWarning()

@@ -72,3 +72,76 @@ func TestResolverRejectsTamperedLockIntegrity(t *testing.T) {
 		t.Fatal("tampered active lock metadata accepted")
 	}
 }
+
+func TestResolverMergesWorkspacePluginsAndRejectsSameID(t *testing.T) {
+	global := testStore(t)
+	workspace := testWorkspaceStore(t)
+	trust := ActivationTrust{Registry: "official", Publisher: "mewisme", Trusted: true}
+	if _, err := global.Install(testManifest("alpha", "1.0.0", "shell/alpha"), testPayload(t, "alpha")); err != nil {
+		t.Fatal(err)
+	}
+	if err := global.Activate("alpha", "1.0.0", trust); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := workspace.Install(testScopedManifest("rtk", "1.0.0", "command-wrapper/rtk", ScopeWorkspace), testPayload(t, "rtk")); err != nil {
+		t.Fatal(err)
+	}
+	if err := workspace.Activate("rtk", "1.0.0", trust); err != nil {
+		t.Fatal(err)
+	}
+	globalOnly, err := NewResolverFromStores(global)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := globalOnly.Resolve("command-wrapper/rtk"); !errors.Is(err, ErrCapabilityNotFound) {
+		t.Fatalf("global-only rtk = %v", err)
+	}
+	merged, err := NewResolverFromStores(global, workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := merged.Resolve("shell/alpha"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := merged.Resolve("command-wrapper/rtk"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := global.Install(testScopedManifest("rtk", "1.0.0", "command-wrapper/rtk", ScopeGlobal, ScopeWorkspace), testPayload(t, "rtk")); err != nil {
+		t.Fatal(err)
+	}
+	if err := global.Activate("rtk", "1.0.0", trust); err != nil {
+		t.Fatal(err)
+	}
+	_, err = NewResolverFromStores(global, workspace)
+	var conflict ScopeConflictError
+	if !errors.As(err, &conflict) || conflict.ID != "rtk" {
+		t.Fatalf("same-id conflict = %v", err)
+	}
+}
+
+func TestResolverAllowsDisabledDuplicateAcrossScopes(t *testing.T) {
+	global := testStore(t)
+	workspace := testWorkspaceStore(t)
+	trust := ActivationTrust{Registry: "official", Publisher: "mewisme", Trusted: true}
+	manifest := testScopedManifest("rtk", "1.0.0", "command-wrapper/rtk", ScopeGlobal, ScopeWorkspace)
+	if _, err := global.Install(manifest, testPayload(t, "rtk")); err != nil {
+		t.Fatal(err)
+	}
+	if err := global.Activate("rtk", "1.0.0", trust); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := workspace.Install(manifest, testPayload(t, "rtk")); err != nil {
+		t.Fatal(err)
+	}
+	if err := workspace.ActivateWithState("rtk", "1.0.0", trust, false); err != nil {
+		t.Fatal(err)
+	}
+	resolver, err := NewResolverFromStores(global, workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider, err := resolver.Resolve("command-wrapper/rtk")
+	if err != nil || provider.PluginID != "rtk" {
+		t.Fatalf("provider = %#v %v", provider, err)
+	}
+}

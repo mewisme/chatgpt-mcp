@@ -98,6 +98,7 @@ type HookRunner func(context.Context, CapabilityProvider, HookEvent) (HookResult
 
 type HookDispatcher struct {
 	store              *Store
+	workspaceStore     func(string) *Store
 	preTimeout         time.Duration
 	observationTimeout time.Duration
 	queue              chan HookEvent
@@ -144,12 +145,18 @@ func NewHookDispatcherWithRunner(store *Store, runner HookRunner) *HookDispatche
 	return &HookDispatcher{store: store, preTimeout: defaultPreHookTimeout, observationTimeout: defaultObservationHookTimeout, queue: make(chan HookEvent, defaultObservationQueueSize), runner: runner}
 }
 
+func (dispatcher *HookDispatcher) SetWorkspaceStore(lookup func(string) *Store) {
+	if dispatcher != nil {
+		dispatcher.workspaceStore = lookup
+	}
+}
+
 func (dispatcher *HookDispatcher) PreToolUse(ctx context.Context, event HookEvent) (HookResult, error) {
 	if dispatcher == nil || dispatcher.store == nil || !shouldDispatchHooks(event) {
 		return HookResult{Schema: HookSchema, Decision: HookDecisionContinue}, nil
 	}
 	event = normalizeHookEvent(event, HookEventPreToolUse)
-	providers, err := dispatcher.providers(CapabilityHookPreToolUse)
+	providers, err := dispatcher.providers(CapabilityHookPreToolUse, event.WorkspaceID)
 	if err != nil {
 		return HookResult{}, err
 	}
@@ -277,7 +284,7 @@ func (dispatcher *HookDispatcher) dispatchObservation(event HookEvent) {
 	if !ok {
 		return
 	}
-	providers, err := dispatcher.providers(capability)
+	providers, err := dispatcher.providers(capability, event.WorkspaceID)
 	if err != nil {
 		dispatcher.failed.Add(1)
 		return
@@ -296,8 +303,12 @@ func (dispatcher *HookDispatcher) dispatchObservation(event HookEvent) {
 	}
 }
 
-func (dispatcher *HookDispatcher) providers(capability Capability) ([]CapabilityProvider, error) {
-	resolver, err := NewResolver(dispatcher.store)
+func (dispatcher *HookDispatcher) providers(capability Capability, workspaceID string) ([]CapabilityProvider, error) {
+	var extra *Store
+	if dispatcher.workspaceStore != nil {
+		extra = dispatcher.workspaceStore(workspaceID)
+	}
+	resolver, err := NewResolverFromStores(dispatcher.store, extra)
 	if err != nil {
 		return nil, err
 	}

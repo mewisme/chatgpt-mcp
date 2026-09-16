@@ -34,11 +34,12 @@ func (provider Provider) Label() string {
 }
 
 type ProviderResolver struct {
-	mu         sync.RWMutex
-	configured string
-	goos       string
-	store      *pluginpkg.Store
-	lookPath   func(string) (string, error)
+	mu             sync.RWMutex
+	configured     string
+	goos           string
+	store          *pluginpkg.Store
+	workspaceStore func(string) *pluginpkg.Store
+	lookPath       func(string) (string, error)
 }
 
 func NewProviderResolver(store *pluginpkg.Store) *ProviderResolver {
@@ -92,15 +93,32 @@ func (resolver *ProviderResolver) PluginStore() *pluginpkg.Store {
 	return resolver.store
 }
 
+func (resolver *ProviderResolver) SetWorkspaceStore(lookup func(string) *pluginpkg.Store) {
+	if resolver == nil {
+		return
+	}
+	resolver.mu.Lock()
+	resolver.workspaceStore = lookup
+	resolver.mu.Unlock()
+}
+
 func (resolver *ProviderResolver) Resolve() (Provider, error) {
+	return resolver.ResolveFor("")
+}
+
+func (resolver *ProviderResolver) ResolveFor(workspaceID string) (Provider, error) {
 	if resolver == nil {
 		return Provider{}, missingBashError(runtime.GOOS)
 	}
 	resolver.mu.RLock()
-	configured, goos, store, lookPath := resolver.configured, resolver.goos, resolver.store, resolver.lookPath
+	configured, goos, store, lookPath, workspaceStore := resolver.configured, resolver.goos, resolver.store, resolver.lookPath, resolver.workspaceStore
 	resolver.mu.RUnlock()
 	if lookPath == nil {
 		lookPath = exec.LookPath
+	}
+	var extra *pluginpkg.Store
+	if workspaceStore != nil {
+		extra = workspaceStore(workspaceID)
 	}
 	if configured != "" {
 		if goos == "windows" {
@@ -119,7 +137,7 @@ func (resolver *ProviderResolver) Resolve() (Provider, error) {
 			}
 			return bashProvider(executable, "system", "", ""), nil
 		}
-		if provider, found, err := resolveBashPlugin(store); err != nil {
+		if provider, found, err := resolveBashPlugin(store, extra); err != nil {
 			return Provider{}, err
 		} else if found {
 			return provider, nil
@@ -129,7 +147,7 @@ func (resolver *ProviderResolver) Resolve() (Provider, error) {
 	if executable, err := lookPath("bash"); err == nil {
 		return bashProvider(executable, "system", "", ""), nil
 	}
-	if provider, found, err := resolveBashPlugin(store); err != nil {
+	if provider, found, err := resolveBashPlugin(store, extra); err != nil {
 		return Provider{}, err
 	} else if found {
 		return provider, nil
@@ -137,11 +155,8 @@ func (resolver *ProviderResolver) Resolve() (Provider, error) {
 	return Provider{}, missingBashError(goos)
 }
 
-func resolveBashPlugin(store *pluginpkg.Store) (Provider, bool, error) {
-	if store == nil {
-		return Provider{}, false, nil
-	}
-	plugins, err := pluginpkg.NewResolver(store)
+func resolveBashPlugin(stores ...*pluginpkg.Store) (Provider, bool, error) {
+	plugins, err := pluginpkg.NewResolverFromStores(stores...)
 	if err != nil {
 		return Provider{}, false, fmt.Errorf("resolve Bash plugin capability: %w", err)
 	}

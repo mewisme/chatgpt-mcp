@@ -35,17 +35,60 @@ type Resolver struct {
 	providers map[Capability][]CapabilityProvider
 }
 
+var ErrScopeConflict = errors.New("plugin cannot be active in both global and workspace scope")
+
+type ScopeConflictError struct {
+	ID     PluginID
+	Scopes []PluginScope
+}
+
+func (err ScopeConflictError) Error() string {
+	if len(err.Scopes) >= 2 {
+		return fmt.Sprintf("plugin %s cannot be active in both %s and %s scope", err.ID, err.Scopes[0], err.Scopes[1])
+	}
+	return fmt.Sprintf("plugin %s cannot be active in both global and workspace scope", err.ID)
+}
+
+func (err ScopeConflictError) Unwrap() error { return ErrScopeConflict }
+
 func NewResolver(store *Store) (*Resolver, error) {
+	return NewResolverFromStores(store)
+}
+
+func NewResolverFromStores(stores ...*Store) (*Resolver, error) {
+	providers := map[Capability][]CapabilityProvider{}
+	enabled := map[PluginID]PluginScope{}
+	for _, store := range stores {
+		if store == nil {
+			continue
+		}
+		if err := appendResolverProviders(store, providers, enabled); err != nil {
+			return nil, err
+		}
+	}
+	for capability := range providers {
+		sort.Slice(providers[capability], func(i, j int) bool {
+			left, right := providers[capability][i], providers[capability][j]
+			if left.PluginID == right.PluginID {
+				return left.Version < right.Version
+			}
+			return left.PluginID < right.PluginID
+		})
+	}
+	return &Resolver{providers: providers}, nil
+}
+
+func appendResolverProviders(store *Store, providers map[Capability][]CapabilityProvider, enabled map[PluginID]PluginScope) error {
 	lock, err := LoadLock(store.layout.LockPath())
 	if err != nil {
-		return nil, err
+		return err
 	}
 	ids := make([]string, 0, len(lock.Plugins))
 	for id := range lock.Plugins {
 		ids = append(ids, string(id))
 	}
 	sort.Strings(ids)
-	providers := map[Capability][]CapabilityProvider{}
+	scope := store.layout.EffectiveScope()
 	for _, idValue := range ids {
 		id := PluginID(idValue)
 		if _, ok := store.Builtins.Lookup(id); ok {
@@ -55,27 +98,31 @@ func NewResolver(store *Store) (*Resolver, error) {
 		if !entry.Enabled {
 			continue
 		}
+		if previous, ok := enabled[id]; ok && previous != scope {
+			return ScopeConflictError{ID: id, Scopes: []PluginScope{previous, scope}}
+		}
+		enabled[id] = scope
 		installed, err := store.Installed(id, entry.Version)
 		if err != nil {
-			return nil, fmt.Errorf("load active plugin %s@%s: %w", id, entry.Version, err)
+			return fmt.Errorf("load active plugin %s@%s: %w", id, entry.Version, err)
 		}
 		digest, err := ManifestDigest(installed.Manifest)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		if digest != entry.ManifestDigest || installed.Manifest.Publisher != entry.Publisher {
-			return nil, fmt.Errorf("active plugin %s@%s does not match lock integrity metadata", id, entry.Version)
+			return fmt.Errorf("active plugin %s@%s does not match lock integrity metadata", id, entry.Version)
 		}
 		artifact, err := installed.Manifest.Platform(store.runtime.OS, store.runtime.Arch)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		if entry.ArtifactDigest != platformLockDigest(artifact) {
-			return nil, fmt.Errorf("active plugin %s@%s artifact digest does not match lock metadata", id, entry.Version)
+			return fmt.Errorf("active plugin %s@%s artifact digest does not match lock metadata", id, entry.Version)
 		}
 		compatible, err := pluginCoreCompatible(store, installed.Manifest)
 		if err != nil {
-			return nil, fmt.Errorf("check active plugin %s@%s compatibility: %w", id, entry.Version, err)
+			return fmt.Errorf("check active plugin %s@%s compatibility: %w", id, entry.Version, err)
 		}
 		if !compatible {
 			continue
@@ -94,16 +141,7 @@ func NewResolver(store *Store) (*Resolver, error) {
 			providers[capability] = append(providers[capability], provider)
 		}
 	}
-	for capability := range providers {
-		sort.Slice(providers[capability], func(i, j int) bool {
-			left, right := providers[capability][i], providers[capability][j]
-			if left.PluginID == right.PluginID {
-				return left.Version < right.Version
-			}
-			return left.PluginID < right.PluginID
-		})
-	}
-	return &Resolver{providers: providers}, nil
+	return nil
 }
 
 func ValidateDependencies(store *Store, manifest Manifest) error {

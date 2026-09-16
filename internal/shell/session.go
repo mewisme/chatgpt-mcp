@@ -121,6 +121,18 @@ func (m *Manager) SetCommandWrapperPipeline(pipeline *pluginpkg.CommandWrapperPi
 	}
 }
 
+func (m *Manager) SetWorkspacePluginStore(lookup func(string) *pluginpkg.Store) {
+	if m == nil {
+		return
+	}
+	if m.wrappers != nil {
+		m.wrappers.SetWorkspaceStore(lookup)
+	}
+	if m.providers != nil {
+		m.providers.SetWorkspaceStore(lookup)
+	}
+}
+
 func (m *Manager) Status(workspaceID string) (Status, error) {
 	item, err := m.workspaces.Get(workspaceID)
 	if err != nil {
@@ -196,7 +208,7 @@ func (m *Manager) Exec(ctx context.Context, workspaceID, command string) (ExecRe
 		effective = "pwd"
 	}
 	requestedEffective := effective
-	plan, err := m.prepareCommand(ctx, "run_command", requestedEffective)
+	plan, err := m.prepareCommand(ctx, "run_command", requestedEffective, workspaceID)
 	if err != nil {
 		return ExecResult{}, err
 	}
@@ -215,7 +227,7 @@ func (m *Manager) Exec(ctx context.Context, workspaceID, command string) (ExecRe
 	if source == "" {
 		source = executionSource(ctx)
 	}
-	provider, err := m.resolveProvider(ctx)
+	provider, err := m.resolveProvider(ctx, workspaceID)
 	if err != nil {
 		return ExecResult{}, err
 	}
@@ -263,7 +275,7 @@ func (m *Manager) prepareBackgroundCommand(ctx context.Context, workspaceID, com
 	if strings.TrimSpace(effective) != strings.TrimSpace(command) || filepath.Clean(effectiveCWD) != filepath.Clean(cwd) {
 		return "", commandPlan{}, errors.New("background process command must not contain cwd-changing directives; change the shell cwd first")
 	}
-	plan, err := m.prepareCommand(ctx, "start_process", effective)
+	plan, err := m.prepareCommand(ctx, "start_process", effective, workspaceID)
 	if err != nil {
 		return "", commandPlan{}, err
 	}
@@ -462,14 +474,14 @@ func commandForProvider(ctx context.Context, command string, provider Provider) 
 	return exec.CommandContext(ctx, provider.Executable, "--noprofile", "--norc", "-c", command), nil
 }
 
-func (m *Manager) resolveProvider(ctx context.Context) (Provider, error) {
+func (m *Manager) resolveProvider(ctx context.Context, workspaceID string) (Provider, error) {
 	if _, ok := controlguard.ApprovalFromContext(ctx); ok {
 		return Provider{}, nil
 	}
 	if m == nil || m.providers == nil {
 		return Provider{}, errors.New("shell provider resolver is unavailable")
 	}
-	return m.providers.Resolve()
+	return m.providers.ResolveFor(workspaceID)
 }
 
 func shellMarkdownLanguage(shell string) string {

@@ -68,9 +68,10 @@ func (err CommandWrapperConflictError) Error() string {
 }
 
 type CommandWrapperPipeline struct {
-	store   *Store
-	timeout time.Duration
-	runner  CommandWrapperRunner
+	store          *Store
+	workspaceStore func(string) *Store
+	timeout        time.Duration
+	runner         CommandWrapperRunner
 }
 
 func NewCommandWrapperPipeline(store *Store) *CommandWrapperPipeline {
@@ -84,13 +85,27 @@ func NewCommandWrapperPipelineWithRunner(store *Store, runner CommandWrapperRunn
 	return &CommandWrapperPipeline{store: store, timeout: defaultWrapperTimeout, runner: runner}
 }
 
+func (pipeline *CommandWrapperPipeline) SetWorkspaceStore(lookup func(string) *Store) {
+	if pipeline != nil {
+		pipeline.workspaceStore = lookup
+	}
+}
+
 func (pipeline *CommandWrapperPipeline) Apply(ctx context.Context, tool, command string) (CommandPlan, error) {
+	return pipeline.ApplyIn(ctx, tool, command, "")
+}
+
+func (pipeline *CommandWrapperPipeline) ApplyIn(ctx context.Context, tool, command, workspaceID string) (CommandPlan, error) {
 	requested := strings.TrimSpace(command)
 	plan := CommandPlan{Requested: requested, Effective: requested, Security: requested}
 	if pipeline == nil || pipeline.store == nil || requested == "" {
 		return plan, nil
 	}
-	resolver, err := NewResolver(pipeline.store)
+	var extra *Store
+	if pipeline.workspaceStore != nil {
+		extra = pipeline.workspaceStore(workspaceID)
+	}
+	resolver, err := NewResolverFromStores(pipeline.store, extra)
 	if err != nil {
 		return CommandPlan{}, err
 	}

@@ -74,6 +74,7 @@ func NewRuntimeWithAccess(globalAllowDirs []string, environments ...ProjectConte
 	shell := shellruntime.NewManagerWithProviderResolver(workspaces, shellruntime.DefaultStateRoot(), executions, shellruntime.NewProviderResolver(pluginStore))
 	processes := shellruntime.NewProcessManagerWithExecutions(workspaces, shell, executions)
 	runtime := &Runtime{Registry: registry, Workspaces: workspaces, Checkpoints: checkpoints, Upstream: upstreams, SessionAccess: NewSessionWorkspaceAccessManager(), Approvals: approval.NewManager(identity.ID), Executions: executions, Hooks: pluginpkg.NewHookDispatcher(pluginStore), PluginStore: pluginStore, Shell: shell, Processes: processes, LoopGuard: NewToolLoopGuard(), PluginReconcile: pluginReconcile, WorkspacePlugins: workspacePlugins}
+	attachEffectiveWorkspacePlugins(runtime)
 	RegisterWorkspaceTools(registry, workspaces, shell)
 	RegisterWorkspaceListTool(registry, runtime)
 	RegisterWorkspaceContainerTools(registry, workspaces)
@@ -148,6 +149,28 @@ func loadWorkspacePluginStores(workspaces *workspace.Manager, stores *pluginpkg.
 			continue
 		}
 		_, _, _ = stores.Load(item.ID, item.Path)
+	}
+}
+
+func attachEffectiveWorkspacePlugins(runtime *Runtime) {
+	if runtime == nil {
+		return
+	}
+	lookup := func(id string) *pluginpkg.Store {
+		if runtime.WorkspacePlugins == nil {
+			return nil
+		}
+		store, ok := runtime.WorkspacePlugins.Get(id)
+		if !ok {
+			return nil
+		}
+		return store
+	}
+	if runtime.Hooks != nil {
+		runtime.Hooks.SetWorkspaceStore(lookup)
+	}
+	if runtime.Shell != nil {
+		runtime.Shell.SetWorkspacePluginStore(lookup)
 	}
 }
 

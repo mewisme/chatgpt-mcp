@@ -184,9 +184,12 @@ func TestInstalledHookExecutableUsesStrictSubprocessProtocol(t *testing.T) {
 	}
 }
 
-func installHookTestPlugin(t *testing.T, store *Store, id string, capability Capability, permission Permission) {
+func installHookTestPlugin(t *testing.T, store *Store, id string, capability Capability, permission Permission, scopes ...PluginScope) {
 	t.Helper()
 	manifest := testManifest(id, "1.0.0", capability)
+	if len(scopes) > 0 {
+		manifest = testScopedManifest(id, "1.0.0", capability, scopes...)
+	}
 	manifest.Type = "hook"
 	manifest.Permissions = []Permission{PermissionProcessExecute, permission}
 	if _, err := store.Install(manifest, testPayload(t, id)); err != nil {
@@ -194,5 +197,43 @@ func installHookTestPlugin(t *testing.T, store *Store, id string, capability Cap
 	}
 	if err := store.Activate(PluginID(id), "1.0.0", ActivationTrust{Registry: "official", Publisher: "mewisme", Trusted: true}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestHookDispatcherUsesWorkspacePluginsOnlyWithWorkspaceID(t *testing.T) {
+	global := testStore(t)
+	workspace := testWorkspaceStore(t)
+	installHookTestPlugin(t, global, "global-hook", CapabilityHookPreToolUse, PermissionHookToolControl)
+	installHookTestPlugin(t, workspace, "workspace-hook", CapabilityHookPreToolUse, PermissionHookToolControl, ScopeWorkspace)
+	called := []PluginID{}
+	dispatcher := NewHookDispatcherWithRunner(global, func(_ context.Context, provider CapabilityProvider, _ HookEvent) (HookResult, error) {
+		called = append(called, provider.PluginID)
+		return HookResult{Schema: HookSchema, Decision: HookDecisionContinue}, nil
+	})
+	dispatcher.SetWorkspaceStore(func(id string) *Store {
+		if id == "ws_demo" {
+			return workspace
+		}
+		return nil
+	})
+	if _, err := dispatcher.PreToolUse(context.Background(), HookEvent{Provenance: HookProvenance{ExecutionID: "call_1", Origin: HookOriginAgent}, Tool: "run_command"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(called) != 1 || called[0] != "global-hook" {
+		t.Fatalf("global context called=%#v", called)
+	}
+	called = nil
+	if _, err := dispatcher.PreToolUse(context.Background(), HookEvent{Provenance: HookProvenance{ExecutionID: "call_2", Origin: HookOriginAgent}, Tool: "run_command", WorkspaceID: "ws_demo"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(called) != 2 || called[0] != "global-hook" || called[1] != "workspace-hook" {
+		t.Fatalf("workspace context called=%#v", called)
+	}
+	called = nil
+	if _, err := dispatcher.PreToolUse(context.Background(), HookEvent{Provenance: HookProvenance{ExecutionID: "call_3", Origin: HookOriginAgent}, Tool: "run_command", WorkspaceID: "ws_other"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(called) != 1 || called[0] != "global-hook" {
+		t.Fatalf("other workspace called=%#v", called)
 	}
 }

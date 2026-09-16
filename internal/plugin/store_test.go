@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	"go.mewis.me/chatgpt-mcp/internal/configformat"
 )
 
 func TestStoreImmutableInstallAndRollback(t *testing.T) {
@@ -161,6 +163,20 @@ func testStore(t *testing.T) *Store {
 	t.Helper()
 	root := t.TempDir()
 	layout := Layout{ConfigRoot: filepath.Join(root, "config"), DataRoot: filepath.Join(root, "data"), CacheRoot: filepath.Join(root, "cache")}
+	store, err := NewStore(layout, RuntimeContext{OS: "linux", Arch: "amd64", CoreVersion: "0.2.24"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return store
+}
+
+func testWorkspaceStore(t *testing.T) *Store {
+	t.Helper()
+	t.Setenv(configformat.EnvConfigDir, t.TempDir())
+	layout, err := WorkspaceLayout(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	store, err := NewStore(layout, RuntimeContext{OS: "linux", Arch: "amd64", CoreVersion: "0.2.24"})
 	if err != nil {
 		t.Fatal(err)

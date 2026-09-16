@@ -125,7 +125,7 @@ func (m *ProcessManager) Start(ctx context.Context, workspaceID, command string)
 		return StartResult{}, err
 	}
 	processCtx := context.WithoutCancel(ctx)
-	provider, err := m.shell.resolveProvider(processCtx)
+	provider, err := m.shell.resolveProvider(processCtx, workspaceID)
 	if err != nil {
 		return StartResult{}, err
 	}

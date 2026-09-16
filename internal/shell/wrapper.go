@@ -18,13 +18,13 @@ type commandPlan struct {
 	WrapperPath       []string
 }
 
-func (m *Manager) prepareCommand(ctx context.Context, tool, command string) (commandPlan, error) {
+func (m *Manager) prepareCommand(ctx context.Context, tool, command, workspaceID string) (commandPlan, error) {
 	requested := strings.TrimSpace(command)
 	plan := commandPlan{Requested: requested, Effective: requested, Security: requested}
 	if _, approved := controlguard.ApprovalFromContext(ctx); approved || m == nil || m.wrappers == nil || requested == "" {
 		return plan, nil
 	}
-	wrapped, err := m.wrappers.Apply(ctx, tool, requested)
+	wrapped, err := m.wrappers.ApplyIn(ctx, tool, requested, workspaceID)
 	if err != nil {
 		return commandPlan{}, err
 	}

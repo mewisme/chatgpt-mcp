@@ -114,7 +114,7 @@ func TestApprovedDirectControlPlaneCommandBypassesWrappers(t *testing.T) {
 	}))
 	invocation := controlguard.Invocation{Program: "cgm", Args: []string{"update"}, Command: "cgm update"}
 	ctx := controlguard.WithApproval(context.Background(), controlguard.Approval{RequestID: "req_test", Capability: "cap_test", Invocation: invocation})
-	plan, err := manager.prepareCommand(ctx, "run_command", invocation.Command)
+	plan, err := manager.prepareCommand(ctx, "run_command", invocation.Command, "")
 	if err != nil {
 		t.Fatal(err)
 	}

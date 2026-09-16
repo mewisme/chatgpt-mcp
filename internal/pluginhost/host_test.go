@@ -22,6 +22,13 @@ func TestBuiltinsIncludePonytailAndCaveman(t *testing.T) {
 	if ponytail.Lifecycle().Install || ponytail.Lifecycle().Uninstall || !ponytail.Lifecycle().Configure {
 		t.Fatalf("ponytail lifecycle = %#v", ponytail.Lifecycle())
 	}
+	for _, id := range []pluginpkg.PluginID{"ponytail", "caveman"} {
+		builtin, _ := registry.Lookup(id)
+		scopes := builtin.AllowedScopes()
+		if len(scopes) != 1 || scopes[0] != pluginpkg.ScopeGlobal {
+			t.Fatalf("%s scopes = %#v", id, scopes)
+		}
+	}
 }
 
 func TestSyncToolsRegistersTurnControllers(t *testing.T) {

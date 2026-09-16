@@ -196,6 +196,36 @@ func testPayload(t *testing.T, name string) string {
 	return root
 }
 
+func TestLeftoverGlobalPluginsRemainGlobal(t *testing.T) {
+	t.Setenv(configformat.EnvConfigDir, t.TempDir())
+	layout := DefaultLayout()
+	if layout.EffectiveScope() != ScopeGlobal || filepath.Base(layout.ConfigPath()) != "plugins.json" || filepath.Base(layout.LockPath()) != "plugins.lock.json" {
+		t.Fatalf("leftover layout = %#v", layout)
+	}
+	config := NewConfig()
+	if err := config.SetDesired("bash", OfficialRegistryName, "1.0.0", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteConfig(layout.ConfigPath(), config); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := layout.LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	desired, ok := loaded.Desired["bash"]
+	if !ok || desired.Version != "1.0.0" || !desired.Enabled {
+		t.Fatalf("leftover desired = %#v", loaded.Desired)
+	}
+	store, err := NewStore(layout, RuntimeContext{OS: "linux", Arch: "amd64", CoreVersion: "0.2.24"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if store.Layout().EffectiveScope() != ScopeGlobal {
+		t.Fatalf("store layout = %#v", store.Layout())
+	}
+}
+
 func TestStoreRejectsDisallowedInstallScope(t *testing.T) {
 	layout, err := WorkspaceLayout(t.TempDir())
 	if err != nil {

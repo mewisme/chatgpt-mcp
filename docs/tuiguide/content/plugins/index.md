@@ -4,20 +4,21 @@ The Plugins area manages installed plugins, marketplace discovery, available upd
 
 ## Installed plugins
 
-The main Plugins tab lists installed plugins. Open a row with `Enter` to view identity, version, enablement, and retained rollback versions. From detail:
+The main Plugins tab lists installed plugins for the selected scope. `g` shows global plugins. `w` shows plugins for one workspace (`plugins/@ws_...`). Rows include a scope badge. Open a row with `Enter` to view identity, version, enablement, and retained rollback versions. From detail:
 
 - `space` enables or disables the plugin;
 - `u` updates to the latest available version;
 - `b` rolls back to a retained version;
 - `p` prunes retained inactive versions;
 - `v` re-verifies integrity and trust;
+- `e` opens Configure when the plugin declares a settings schema;
 - `d` uninstalls; `D` force-uninstalls when needed.
 
-`r` refreshes the current list or detail.
+Workspace views hide global-only plugins such as `admin-ui`. Lifecycle actions target the selected store only. `r` refreshes the current list or detail.
 
 ## Marketplace
 
-Press `2` (or open **Plugin Marketplace** from Commands) to browse registry catalogs. Filter with `/`, open a row for metadata and trust details, then `i` to install. Marketplace rows are keyed by registry-qualified references such as `official/bash`.
+Press `2` (or open **Plugin Marketplace** from Commands) to browse registry catalogs. Filter with `/`, open a row for metadata and trust details, then `i` to install. Marketplace rows are keyed by registry-qualified references such as `official/bash`. If the plugin allows both global and workspace installs, pick a scope before host prerequisites run.
 
 ## Updates
 
@@ -31,4 +32,4 @@ Unqualified name resolution is only used for registries explicitly configured to
 
 ## Commands and CLI
 
-`Ctrl+K` surfaces plugin actions when the current Plugins route has a matching resource. Canonical CLI equivalents include `cgm plugin list`, `cgm plugin search`, `cgm plugin install`, `cgm plugin update`, `cgm plugin verify`, and `cgm plugin registry add|list|remove`.
+`Ctrl+K` surfaces plugin actions when the current Plugins route has a matching resource. Canonical CLI equivalents include `cgm plugin list`, `cgm plugin search`, `cgm plugin install`, `cgm plugin update`, `cgm plugin verify`, and `cgm plugin registry add|list|remove`. Use `--scope` / `--workspace` on lifecycle commands; Admin Settings can switch Global vs Workspace plugin views, and a workspace page Plugins tab targets that workspace.

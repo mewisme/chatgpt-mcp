@@ -70,6 +70,7 @@ Switching between workspaces does not merge their:
 - rules and skills
 - checkpoints/rewind state
 - approval state
+- workspace-scoped plugins and their config/payloads
 
 This isolation is why concrete `ws_*` targets remain required even when several projects belong to the same workspace container.
 
@@ -83,9 +84,12 @@ Each registered workspace owns persistent state under `<workspace>/.cgm`:
 .cgm/state/           shell/REPL and other workspace-owned state
 .cgm/memory/          workspace memory
 .cgm/checkpoints/     rewind snapshots
+.cgm/plugins/         workspace-scoped plugin desired/lock/config/payloads
 .cgm/cache/           rebuildable cache
 .cgm/runtime/lock     OS-backed exclusive runtime lock
 ```
+
+Workspace plugin desired state is `.cgm/plugins/desired.json`, lock state is `.cgm/plugins/lock.json`, per-plugin settings are `.cgm/plugins/config/<id>.json`, and payloads are `.cgm/plugins/data`. Plugin registries and the download cache stay global. Relocate keeps plugin state because `.cgm` moves with the project directory. `workspace purge` deletes `.cgm`, including workspace plugins. Unregister unloads runtime plugin stores but leaves `.cgm` on disk.
 
 The global `workspaces.json` index stores only identity/path pointers. Registering a workspace creates `.cgm` when it is missing and reuses an existing identity instead of minting a new ID. Leftover global `workspaces/<id>` state is copied into `.cgm` on load: missing files are added, checkpoint indexes are merged by ID, existing local files win on other conflicts, and the leftover directory is then removed.
 

@@ -19,9 +19,11 @@ Install and manage a plugin:
 
 ```bash
 cgm plugin install official/bash
+cgm plugin install official/bash --scope global
+cgm plugin install official/rtk --scope workspace --workspace ws_...
 cgm plugin verify bash
 cgm plugin disable bash
-cgm plugin enable bash
+cgm plugin enable bash --scope workspace --workspace ws_...
 cgm plugin update bash
 cgm plugin rollback bash
 cgm plugin prune bash
@@ -29,20 +31,46 @@ cgm plugin prune --retain 1 --cache
 cgm plugin uninstall bash
 ```
 
-The official Admin UI is a platform-independent static plugin:
+`--workspace` implies `--scope workspace`. `--scope global --workspace ...` is rejected. Plugins that allow only one scope install there automatically. Schema-1 manifests and existing installs stay global; there is no automatic move into a workspace. A plugin that allows both scopes requires `--scope` or `--workspace` when stdin is not a TTY.
+
+The official Admin UI is a platform-independent static plugin and is global-only:
 
 ```bash
 cgm plugin install admin-ui
 cgm plugin verify admin-ui
 ```
 
-The core keeps the admin listener, authentication, `/api/*`, OAuth callback, activity endpoints, and security headers. `admin-ui` only provides signed static assets through `web-ui/admin` and requests no runtime permissions. Without an enabled provider, API routes remain available while the root UI returns a service-unavailable response with the install command.
+The core keeps the admin listener, authentication, `/api/*`, OAuth callback, activity endpoints, and security headers. `admin-ui` only provides signed static assets through `web-ui/admin` and requests no runtime permissions. Without an enabled provider, API routes remain available while the root UI returns a service-unavailable response with the install command. Auth and tunnel behavior stay in core; they are not workspace plugins.
 
-The official RTK wrapper is host-backed. If RTK is not available on `PATH`, installation can use the manifest-declared verified portable binary or a supported global installer; manual shell installation hints remain recommendations only.
+The official RTK wrapper is host-backed. If RTK is not available on `PATH`, installation can use the manifest-declared verified portable binary or a supported global installer; manual shell installation hints remain recommendations only. `bash` and `rtk` may be installed globally or for one workspace. Built-in Ponytail and Caveman remain global-only.
 
 `cgm plugin rollback <plugin> [version]` rolls back to a retained version. With no version it selects the newest retained version older than the active version. Current installs persist verified registry/publisher identity plus manifest and artifact digests alongside a local payload integrity root, so a retained version can be re-verified and activated while its registry is offline. Legacy retained versions created before that metadata existed fall back to registry re-resolution and signature verification before activation.
 
-The default update retention policy keeps the active version plus the two newest inactive rollback versions. `cgm plugin prune [plugin] --retain N` applies the same retention rule manually; without a plugin it also removes orphaned inactive versions left by uninstalled plugins. Add `--cache` to remove registry/download cache and stale extraction directories without touching config, lock state, or the active payload.
+The default update retention policy keeps the active version plus the two newest inactive rollback versions. `cgm plugin prune [plugin] --retain N` applies the same retention rule manually; without a plugin it also removes orphaned inactive versions left by uninstalled plugins. Add `--cache` to remove registry/download cache and stale extraction directories without touching config, lock state, or the active payload. Update, rollback, prune, and verify act only on the selected scope's store.
+
+## Install scope
+
+Plugins install in exactly one of:
+
+```text
+global     once for this CGM install; visible to every workspace that uses that plugin type
+workspace  one registered workspace; active only while operating in that workspace
+```
+
+Manifest `scopes` (schema 2) lists allowed values. Schema 1 has no field and is global-only. CLI/TUI/Admin cannot install a plugin into a scope the manifest forbids.
+
+The same plugin ID cannot be enabled globally and in a workspace at the same time. Disabled copies may exist in both stores. Do not merge global and workspace config for the same ID.
+
+Effective plugins for a request:
+
+```text
+no workspace context     global plugins only
+workspace ws_...         global plugins + that workspace's plugins
+```
+
+Workspace plugins may depend on global providers. Global plugins may not depend on a workspace plugin.
+
+`cgm plugin config` reads and writes global plugin settings. Workspace plugin settings live under that workspace's `.cgm` and are edited from TUI/Admin with an explicit workspace selected.
 
 ## Registries and trust
 
@@ -98,14 +126,17 @@ Without unqualified resolution, install with an explicit registry prefix such as
 
 Plugin state is deliberately split:
 
-- `plugins.json` contains portable **desired state**: registries and exact desired plugin versions plus enabled/disabled intent;
-- `plugins.lock.json` contains machine-local **verified activation state**: active version, publisher, manifest digest, platform integrity digest, and enabled state;
-- installed version directories retain verified source metadata plus a payload-tree integrity digest; packaged payloads live under the plugin data root, while global host-backed plugins retain metadata without copying the host executable;
-- downloaded registry/artifact cache lives under the plugin cache root.
+- global `plugins.json` contains portable **desired state**: registries and exact desired plugin versions plus enabled/disabled intent;
+- global `plugins.lock.json` contains machine-local **verified activation state**: active version, publisher, manifest digest, platform integrity digest, and enabled state;
+- workspace installs store the same desired/lock split under `<workspace>/.cgm/plugins/{desired.json,lock.json}` and payloads under `.cgm/plugins/data`;
+- workspace plugin settings live under `.cgm/plugins/config/<id>.json`;
+- registries remain global even for workspace installs; workspace desired files never contain registry definitions;
+- installed version directories retain verified source metadata plus a payload-tree integrity digest; packaged payloads live under the selected scope's plugin data root, while global host-backed plugins retain metadata without copying the host executable;
+- downloaded registry/artifact cache lives under the shared global plugin cache root.
 
-This split keeps backup/import portable without treating executable state from another machine as trusted.
+Existing installs stay in the global files above. Upgrade does not infer workspace scope from the current directory.
 
-`cgm config export` includes `plugins.json` but excludes `plugins.lock.json`, installed plugin payloads, and registry/download cache. `cgm config import` restores desired state and reports plugins that are missing, incompatible, or pending activation; it does not silently install executable payloads. An existing local lock is preserved during forced import.
+`cgm config export` includes global `plugins.json` but excludes `plugins.lock.json`, installed plugin payloads, and registry/download cache. Workspace `.cgm/plugins` is workspace-owned state, not part of that bundle. `cgm config import` restores desired state and reports plugins that are missing, incompatible, or pending activation; it does not silently install executable payloads. An existing local lock is preserved during forced import.
 
 ## Windows Bash provider
 
@@ -133,7 +164,7 @@ Run:
 cgm doctor
 ```
 
-Startup and `doctor` reconcile plugin activation state before capabilities are used. Reconciliation is fail-safe:
+Startup and `doctor` reconcile plugin activation state before capabilities are used. Global desired/lock files and each workspace `.cgm/plugins` store reconcile independently. Reconciliation is fail-safe:
 
 - a structurally corrupt lock file is quarantined as `plugins.lock.json.corrupt-<timestamp>` and replaced with an empty lock;
 - desired state in `plugins.json` is preserved;
@@ -147,16 +178,19 @@ After recovery, explicitly repair/install the desired plugins and run `cgm plugi
 
 A plugin uses a strict `plugin.json` manifest. Unknown JSON fields are rejected. IDs, publishers, capability names, and platform names use canonical lowercase names; plugin versions are SemVer without a leading `v`. Most plugins ship a platform artifact, but a command-wrapper may instead declare a verified host executable and install only signed metadata.
 
+Schema 1 has no `scopes` field and installs globally only. Schema 2 requires a non-empty unique `scopes` list of `global` and/or `workspace`. Do not add `scopes` to a schema-1 manifest.
+
 Example packaged command-wrapper manifest:
 
 ```json
 {
-  "schema": 1,
+  "schema": 2,
   "id": "example-wrapper",
   "name": "Example Wrapper",
   "publisher": "example",
   "version": "1.2.3",
   "type": "command-wrapper",
+  "scopes": ["global", "workspace"],
   "requires": { "chatgpt-mcp": ">=0.2.0" },
   "provides": ["command-wrapper/example-wrapper"],
   "permissions": ["process/execute"],
@@ -301,6 +335,8 @@ Plugin capabilities are subordinate to core policy:
 - plugin rewrites cannot weaken command classification;
 - plugins cannot expand registered workspace roots by returning different paths;
 - plugin installation/trust configuration is a local operator action, not an Agent self-grant path;
+- workspace scope does not weaken signature, publisher, permission, or extraction checks;
+- workspace plugin payloads cannot escape `.cgm/plugins`;
 - signed metadata is verified before activation; packaged artifacts are SHA-256 verified before extraction and installed payload trees are re-verified by `plugin verify`, enable, rollback, and reconciliation;
 - activation records bind registry, publisher, manifest digest, platform integrity digest, version, and enabled state, while each installed version retains verified trust metadata for offline rollback;
 - corrupt or unverifiable activation state is disabled instead of being guessed/reconstructed from executable files;

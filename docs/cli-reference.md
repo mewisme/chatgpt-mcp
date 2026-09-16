@@ -216,6 +216,8 @@ Inspect signed registries and installed plugins:
 cgm plugin search [query]
 cgm plugin info official/bash
 cgm plugin list
+cgm plugin list --scope global
+cgm plugin list --scope workspace --workspace ws_...
 cgm plugin outdated
 cgm plugin registry list
 ```
@@ -224,9 +226,10 @@ Manage lifecycle:
 
 ```bash
 cgm plugin install official/bash
+cgm plugin install official/rtk --scope workspace --workspace ws_...
 cgm plugin verify bash
 cgm plugin disable bash
-cgm plugin enable bash
+cgm plugin enable bash --scope workspace --workspace ws_...
 cgm plugin update bash
 cgm plugin rollback bash
 cgm plugin rollback bash 1.2.3
@@ -234,6 +237,8 @@ cgm plugin prune bash
 cgm plugin prune --retain 1 --cache
 cgm plugin uninstall bash
 ```
+
+`--scope` is `global` or `workspace`. `--workspace` implies workspace scope. Search, info, registry, and `plugin config` stay global. See [Plugins](plugins.md#install-scope) for conflict rules and `.cgm` storage.
 
 Updates keep the active version plus two inactive rollback versions. Rollback re-resolves and re-verifies the exact signed manifest/artifact before activation instead of trusting the retained executable copy directly. `plugin prune [plugin] --retain N` removes older inactive versions; without a plugin it also removes orphaned versions from uninstalled plugins, and `--cache` clears only plugin registry/download cache plus stale extraction directories.
 

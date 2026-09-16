@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/secretstore"
 )
 
@@ -193,6 +194,7 @@ func TestWorkspacePluginConfigPath(t *testing.T) {
 }
 
 func TestWorkspaceSettingsStoreWritesCgmConfig(t *testing.T) {
+	t.Setenv(configformat.EnvConfigDir, t.TempDir())
 	layout, err := WorkspaceLayout(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -204,5 +206,45 @@ func TestWorkspaceSettingsStoreWritesCgmConfig(t *testing.T) {
 	}
 	if _, err := os.Stat(layout.PluginConfigPath("ponytail")); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestWorkspaceSettingsDoNotAffectPeerOrGlobal(t *testing.T) {
+	t.Setenv(configformat.EnvConfigDir, t.TempDir())
+	schema := testPluginSettingsSchema()
+	aLayout, err := WorkspaceLayout(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	bLayout, err := WorkspaceLayout(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := SettingsStore{Layout: aLayout}
+	b := SettingsStore{Layout: bLayout}
+	global := SettingsStore{Layout: DefaultLayout()}
+	if err := a.Set(schema, "ponytail", "default_mode", "lite"); err != nil {
+		t.Fatal(err)
+	}
+	aValues, err := a.Get(schema, "ponytail")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bValues, err := b.Get(schema, "ponytail")
+	if err != nil {
+		t.Fatal(err)
+	}
+	globalValues, err := global.Get(schema, "ponytail")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if aValues["default_mode"] != "lite" {
+		t.Fatalf("workspace A = %#v", aValues)
+	}
+	if bValues["default_mode"] != "full" {
+		t.Fatalf("workspace B = %#v", bValues)
+	}
+	if globalValues["default_mode"] != "full" {
+		t.Fatalf("global = %#v", globalValues)
 	}
 }

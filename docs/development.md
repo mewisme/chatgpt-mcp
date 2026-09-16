@@ -331,6 +331,20 @@ Normal commands only read a fresh cache; explicit update checks bypass it and qu
 
 Releases are produced by GoReleaser after release-native checks pass.
 
+Release compliance order:
+
+```text
+compile executable
+  -> UPX compress eligible Linux/Windows native plugin binaries
+  -> generate per-artifact NOTICE / licenses.txt / sbom.spdx.json
+  -> assemble archives that already contain those files
+  -> checksum
+  -> sign
+  -> publish
+```
+
+Do not sign an archive and then mutate its license files. Core archives use `dist/licenses/core`; official plugins generate `dist/licenses/<id>` before zip. Review `licenses/policy.json` when the inventory fails.
+
 The release archive contains the standalone core binary plus release metadata/files configured by GoReleaser. The Admin UI is released independently through the signed plugin marketplace.
 
 GoReleaser also produces package-manager manifests used by:

@@ -183,4 +183,6 @@ See [Development](docs/development.md) for the complete verification, CI, and re
 
 Copyright 2026 Nguyễn Mậu Minh. Licensed under the [Apache License, Version 2.0](LICENSE).
 
-Third-party and adapted material keeps its original license. See [NOTICE](NOTICE), `third_party/`, `plugins/cf-tunnel/internal/cloudflared/LICENSE`, and `plugins/bash/licenses/`.
+Third-party and adapted material keeps its original license. See [NOTICE](NOTICE), `third_party/`, `plugins/cf-tunnel/internal/cloudflared/LICENSE`, and `plugins/bash/licenses/`. Official CGM plugins declare SPDX `license` in `plugin.json` (Apache-2.0 except the bash payload, which is GPL-2.0-only). Community plugins choose their own SPDX expression; the field is metadata only.
+
+"Caveman" is a trademark of Julius Brussee; this project uses the name only to attribute the MIT-licensed upstream material. See `third_party/caveman/NOTICE.md`.

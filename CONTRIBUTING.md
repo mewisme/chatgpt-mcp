@@ -74,3 +74,19 @@ Releases are cut from tags on `main` via GoReleaser. Release notes live on [GitH
 ## License
 
 Contributions are licensed under the project [Apache License 2.0](LICENSE).
+
+### Copied or adapted source
+
+If you add third-party source to the tree, keep the upstream license and record:
+
+- upstream URL and exact revision
+- original license file
+- NOTICE/attribution and any trademark limits
+- a short provenance file (see `plugins/cf-tunnel/internal/cloudflared/UPSTREAM.md`)
+- local modifications
+
+Do not relicense someone else's code as Apache-2.0. Point the matching plugin or core artifact at that material in `internal/licenseinventory` so NOTICE/SBOM generation stays attached to the artifact that ships it.
+
+### New dependency licenses
+
+Runtime and distributed dependencies must use an SPDX identifier already listed in `licenses/policy.json`. Adding a new license family requires a reviewable allowlist entry with `kind` and, for copyleft/custom/restrictive licenses, a rationale and optional `artifacts` scope. Unknown or unallowlisted licenses fail `go test ./internal/licenseinventory` and `go run ./internal/licenseinventory/cmd/license-inventory`.

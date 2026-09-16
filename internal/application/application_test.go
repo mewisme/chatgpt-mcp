@@ -302,7 +302,6 @@ func TestConfigConvertRoundTripJSONYAMLTOML(t *testing.T) {
 	cfg.Auth.MCPTokenHash = "mcp-hash"
 	cfg.Auth.AdminTokenHash = "admin-hash"
 	cfg.Server.Port = 40123
-	cfg.Features.Ponytail.Mode = "ultra"
 	if err := config.SaveAs(cfg, configformat.JSON); err != nil {
 		t.Fatal(err)
 	}
@@ -321,7 +320,7 @@ func TestConfigConvertRoundTripJSONYAMLTOML(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if loaded.Server.Port != 40123 || loaded.Features.Ponytail.Mode != "ultra" || loaded.Auth.MCPTokenHash != "mcp-hash" || loaded.Auth.AdminTokenHash != "admin-hash" {
+		if loaded.Server.Port != 40123 || loaded.Auth.MCPTokenHash != "mcp-hash" || loaded.Auth.AdminTokenHash != "admin-hash" {
 			t.Fatalf("round trip changed config after %s: %#v", format, loaded)
 		}
 	}

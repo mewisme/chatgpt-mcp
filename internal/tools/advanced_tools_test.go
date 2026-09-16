@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"go.mewis.me/chatgpt-mcp/internal/caveman"
-	"go.mewis.me/chatgpt-mcp/internal/features"
 	"go.mewis.me/chatgpt-mcp/internal/ponytail"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
@@ -28,14 +27,13 @@ func newAdvancedRuntime(t *testing.T) (*Runtime, string, string) {
 	if SyncCompiledPlugins == nil {
 		SyncCompiledPlugins = syncTestCompiledPlugins
 	}
-	if err := runtime.SyncFeatures(features.Default()); err != nil {
+	if err := runtime.SyncPlugins(); err != nil {
 		t.Fatal(err)
 	}
 	return runtime, item.ID, item.Path
 }
 
-func syncTestCompiledPlugins(runtime *Runtime, raw any) error {
-	feat, _ := raw.(features.Config)
+func syncTestCompiledPlugins(runtime *Runtime) error {
 	runtime.EnsurePluginSessions(func() []PluginSession {
 		pony := ponytail.NewManager(true, ponytail.Full)
 		cave := caveman.NewManager(true, caveman.Full)
@@ -61,8 +59,8 @@ func syncTestCompiledPlugins(runtime *Runtime, raw any) error {
 		}
 	})
 	return runtime.ApplyPluginSettings(map[string]map[string]any{
-		"ponytail": {"default_active": feat.Ponytail.Active, "default_mode": feat.Ponytail.Mode},
-		"caveman":  {"default_active": feat.Caveman.Active, "default_mode": feat.Caveman.Mode},
+		"ponytail": {"default_active": true, "default_mode": "full"},
+		"caveman":  {"default_active": true, "default_mode": "full"},
 	})
 }
 
@@ -88,10 +86,10 @@ func TestFeatureToolsStayRegisteredWhileActiveStateChanges(t *testing.T) {
 	if value, ok := first.StructuredContent.(caveman.Result); !ok || !value.Active {
 		t.Fatalf("default caveman result = %#v", first.StructuredContent)
 	}
-	featureConfig := features.Default()
-	featureConfig.Ponytail.Active = false
-	featureConfig.Caveman.Active = false
-	if err := runtime.SyncFeatures(featureConfig); err != nil {
+	if err := runtime.ApplyPluginSettings(map[string]map[string]any{
+		"ponytail": {"default_active": false, "default_mode": "full"},
+		"caveman":  {"default_active": false, "default_mode": "full"},
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := runtime.Registry.Schema("ponytail_turn"); !ok {
@@ -107,8 +105,10 @@ func TestFeatureToolsStayRegisteredWhileActiveStateChanges(t *testing.T) {
 	if value, ok := second.StructuredContent.(caveman.Result); !ok || value.Active {
 		t.Fatalf("inactive caveman result = %#v", second.StructuredContent)
 	}
-	featureConfig.Caveman.Active = true
-	if err := runtime.SyncFeatures(featureConfig); err != nil {
+	if err := runtime.ApplyPluginSettings(map[string]map[string]any{
+		"ponytail": {"default_active": false, "default_mode": "full"},
+		"caveman":  {"default_active": true, "default_mode": "full"},
+	}); err != nil {
 		t.Fatal(err)
 	}
 	third, err := runtime.Call(context.Background(), "caveman_turn", map[string]any{"workspace_id": workspaceID, "prompt": "continue"})
@@ -122,9 +122,10 @@ func TestFeatureToolsStayRegisteredWhileActiveStateChanges(t *testing.T) {
 
 func TestCavemanToolReturnsBuiltInInstructions(t *testing.T) {
 	runtime, workspaceID, _ := newAdvancedRuntime(t)
-	featureConfig := features.Default()
-	featureConfig.Caveman.Mode = "wenyan-full"
-	if err := runtime.SyncFeatures(featureConfig); err != nil {
+	if err := runtime.ApplyPluginSettings(map[string]map[string]any{
+		"ponytail": {"default_active": true, "default_mode": "full"},
+		"caveman":  {"default_active": true, "default_mode": "wenyan-full"},
+	}); err != nil {
 		t.Fatal(err)
 	}
 	result, err := runtime.Call(context.Background(), "caveman_turn", map[string]any{"workspace_id": workspaceID, "prompt": "continue", "action": "refresh"})
@@ -139,9 +140,10 @@ func TestCavemanToolReturnsBuiltInInstructions(t *testing.T) {
 
 func TestPonytailToolReturnsBuiltInInstructionsAndConfiguredMode(t *testing.T) {
 	runtime, workspaceID, _ := newAdvancedRuntime(t)
-	featureConfig := features.Default()
-	featureConfig.Ponytail.Mode = "ultra"
-	if err := runtime.SyncFeatures(featureConfig); err != nil {
+	if err := runtime.ApplyPluginSettings(map[string]map[string]any{
+		"ponytail": {"default_active": true, "default_mode": "ultra"},
+		"caveman":  {"default_active": true, "default_mode": "full"},
+	}); err != nil {
 		t.Fatal(err)
 	}
 	result, err := runtime.Call(context.Background(), "ponytail_turn", map[string]any{"workspace_id": workspaceID, "prompt": "continue"})

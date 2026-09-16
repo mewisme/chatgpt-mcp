@@ -50,7 +50,7 @@ func tunnelRunCommand() *cobra.Command {
 
 		log := commandLogger(cmd)
 		logCommandStep(cmd, "TUNNEL", "tunnel.tools.initializing", "Initializing MCP tool runtime")
-		runtime := tools.NewRuntimeWithAccess(cfg.Features, cfg.Permissions.AllowDirs, func() (bool, int) { return cfg.Admin.Enabled, cfg.Admin.Port })
+		runtime := tools.NewRuntimeWithAccess(cfg.Permissions.AllowDirs, func() (bool, int) { return cfg.Admin.Enabled, cfg.Admin.Port })
 		if err := runtime.SetShellExecutable(cfg.Shell.Executable); err != nil {
 			return err
 		}

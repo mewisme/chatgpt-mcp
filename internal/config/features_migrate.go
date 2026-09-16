@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"path/filepath"
 
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
@@ -9,60 +10,26 @@ import (
 	ponytailplugin "go.mewis.me/chatgpt-mcp/plugins/ponytail"
 )
 
-func migrateLegacyFeatureSettings(configPath string, data []byte, cfg *Config) error {
-	if cfg == nil {
+func migrateLegacyFeatureSettings(configPath string, data []byte, _ *Config) error {
+	if !configHasFeatures(configPath, data) {
 		return nil
 	}
-	source := *cfg
-	if configHasFeatures(configPath, data) {
-		var file struct {
-			Features FeaturesConfig `json:"features"`
-		}
-		file.Features = Default().Features
-		if err := configformat.UnmarshalPath(configPath, data, &file); err != nil {
-			return err
-		}
-		source.Features = file.Features
+	source := defaultLegacyFeatures()
+	var file struct {
+		Features legacyFeatures `json:"features"`
+	}
+	file.Features = source
+	if err := configformat.UnmarshalPath(configPath, data, &file); err != nil {
+		return err
 	}
 	store := settingsStoreForConfigPath(configPath)
-	for _, item := range builtinFeatureSettings(source) {
+	for _, item := range builtinFeatureSettings(file.Features) {
 		if err := store.ImportMissing(item.Schema, item.ID, item.Values); err != nil {
 			return err
 		}
 	}
-	if err := hydrateFeatureSettings(configPath, cfg); err != nil {
-		return err
-	}
-	if !configHasFeatures(configPath, data) {
-		return nil
-	}
 	_, err := pruneDeprecatedConfigKeys(configPath, [][]string{{"features"}})
 	return err
-}
-
-func persistFeatureSettings(configPath string, cfg Config) error {
-	store := settingsStoreForConfigPath(configPath)
-	for _, item := range builtinFeatureSettings(cfg) {
-		if err := store.SyncOverrides(item.Schema, item.ID, item.Values); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func hydrateFeatureSettings(configPath string, cfg *Config) error {
-	if cfg == nil {
-		return nil
-	}
-	store := settingsStoreForConfigPath(configPath)
-	for _, item := range builtinFeatureSettings(*cfg) {
-		values, err := store.Get(item.Schema, item.ID)
-		if err != nil {
-			return err
-		}
-		applyFeatureSettings(cfg, item.ID, values)
-	}
-	return nil
 }
 
 func settingsStoreForConfigPath(configPath string) pluginpkg.SettingsStore {
@@ -87,52 +54,49 @@ func configHasFeatures(configPath string, data []byte) bool {
 	return exists
 }
 
+type legacyFeatures struct {
+	Ponytail legacyFeature `json:"ponytail"`
+	Caveman  legacyFeature `json:"caveman"`
+}
+
+type legacyFeature struct {
+	Active bool
+	Mode   string
+}
+
+func defaultLegacyFeatures() legacyFeatures {
+	return legacyFeatures{Ponytail: legacyFeature{Active: true, Mode: "full"}, Caveman: legacyFeature{Active: true, Mode: "full"}}
+}
+
+func (f *legacyFeature) UnmarshalJSON(data []byte) error {
+	var value struct {
+		Active  *bool   `json:"active"`
+		Enabled *bool   `json:"enabled"`
+		Mode    *string `json:"mode"`
+	}
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	if value.Active != nil {
+		f.Active = *value.Active
+	} else if value.Enabled != nil {
+		f.Active = *value.Enabled
+	}
+	if value.Mode != nil {
+		f.Mode = *value.Mode
+	}
+	return nil
+}
+
 type featurePluginSetting struct {
 	ID     pluginpkg.PluginID
 	Schema pluginpkg.SettingsSchema
 	Values map[string]any
 }
 
-func builtinFeatureSettings(cfg Config) []featurePluginSetting {
+func builtinFeatureSettings(src legacyFeatures) []featurePluginSetting {
 	return []featurePluginSetting{
-		{ponytailplugin.Plugin().ID, ponytailplugin.Plugin().Schema, map[string]any{"default_active": cfg.Features.Ponytail.Active, "default_mode": cfg.Features.Ponytail.Mode}},
-		{cavemanplugin.Plugin().ID, cavemanplugin.Plugin().Schema, map[string]any{"default_active": cfg.Features.Caveman.Active, "default_mode": cfg.Features.Caveman.Mode}},
+		{ponytailplugin.Plugin().ID, ponytailplugin.Plugin().Schema, map[string]any{"default_active": src.Ponytail.Active, "default_mode": src.Ponytail.Mode}},
+		{cavemanplugin.Plugin().ID, cavemanplugin.Plugin().Schema, map[string]any{"default_active": src.Caveman.Active, "default_mode": src.Caveman.Mode}},
 	}
-}
-
-func applyFeatureSettings(cfg *Config, id pluginpkg.PluginID, values map[string]any) {
-	active := boolSetting(values, "default_active", true)
-	mode := stringSetting(values, "default_mode", "full")
-	switch id {
-	case "ponytail":
-		cfg.Features.Ponytail.Active = active
-		cfg.Features.Ponytail.Mode = mode
-	case "caveman":
-		cfg.Features.Caveman.Active = active
-		cfg.Features.Caveman.Mode = mode
-	}
-}
-
-func boolSetting(values map[string]any, key string, fallback bool) bool {
-	raw, ok := values[key]
-	if !ok {
-		return fallback
-	}
-	value, ok := raw.(bool)
-	if !ok {
-		return fallback
-	}
-	return value
-}
-
-func stringSetting(values map[string]any, key, fallback string) string {
-	raw, ok := values[key]
-	if !ok {
-		return fallback
-	}
-	value, ok := raw.(string)
-	if !ok || value == "" {
-		return fallback
-	}
-	return value
 }

@@ -292,9 +292,6 @@ func TestConfigAPIIgnoresLegacyFeaturesPatch(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", recorder.Code, recorder.Body.String())
 	}
-	if got := store.Snapshot().Features; !got.Ponytail.Active || got.Ponytail.Mode != "full" || !got.Caveman.Active || got.Caveman.Mode != "full" {
-		t.Fatalf("legacy features patch mutated store: %#v", got)
-	}
 	if strings.Contains(recorder.Body.String(), `"features"`) {
 		t.Fatalf("features leaked into public config: %s", recorder.Body.String())
 	}
@@ -309,7 +306,7 @@ func TestConfigAPIPermissionsPatchUpdatesRuntimeAccess(t *testing.T) {
 	cfg.Auth.AdminEnabled = false
 	cfg.Server.AllowUnauthenticatedLoopback = true
 	store := config.NewRuntimeStore(cfg)
-	runtime := tools.NewRuntimeWithAccess(cfg.Features, cfg.Permissions.AllowDirs)
+	runtime := tools.NewRuntimeWithAccess(cfg.Permissions.AllowDirs)
 	item, err := runtime.Workspaces.Register(root)
 	if err != nil {
 		t.Fatal(err)
@@ -371,7 +368,7 @@ func TestConfigAPIPermissionsPersistenceFailureKeepsRuntimeAccess(t *testing.T) 
 	cfg.Auth.AdminEnabled = false
 	cfg.Server.AllowUnauthenticatedLoopback = true
 	store := config.NewRuntimeStore(cfg)
-	runtime := tools.NewRuntimeWithAccess(cfg.Features, cfg.Permissions.AllowDirs)
+	runtime := tools.NewRuntimeWithAccess(cfg.Permissions.AllowDirs)
 	item, err := runtime.Workspaces.Register(root)
 	if err != nil {
 		t.Fatal(err)
@@ -701,7 +698,7 @@ func TestManagedTunnelUseReusesRuntimeKeyAndSwitchesConfig(t *testing.T) {
 	cfg.Auth.MCPEnabled, cfg.Auth.AdminEnabled = false, false
 	cfg.Server.AllowUnauthenticatedLoopback = true
 	cfg.Tunnel = tunnel.Config{Enabled: false, ID: "tunnel_one", APIKey: "runtime-key", AdminKey: "sk-admin", AdminWorkspaceID: "ws_admin", AdminReadAccess: true, AdminManageAccess: true, ControlPlaneBaseURL: server.URL, OrganizationID: "org_one"}
-	runtime := tools.NewRuntimeWithAccess(cfg.Features, cfg.Permissions.AllowDirs, nil)
+	runtime := tools.NewRuntimeWithAccess(cfg.Permissions.AllowDirs, nil)
 	client := tunnel.NewConfigured(cfg.Tunnel, runtime)
 	defer client.Stop()
 	store := config.NewRuntimeStore(cfg)

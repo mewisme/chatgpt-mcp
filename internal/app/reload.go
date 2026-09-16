@@ -21,7 +21,6 @@ func (a *App) ReloadConfig(next config.Config) error {
 	}
 	previous := a.Config.Snapshot()
 	httpChanged := previous.Server.Enabled != next.Server.Enabled
-	featuresChanged := previous.Features != next.Features
 	permissionsChanged := !slices.Equal(previous.Permissions.AllowDirs, next.Permissions.AllowDirs)
 	shellExecutableChanged := previous.Shell.Executable != next.Shell.Executable
 	shellPathChanged := !slices.Equal(previous.Shell.Path, next.Shell.Path)
@@ -34,18 +33,16 @@ func (a *App) ReloadConfig(next config.Config) error {
 	if reloadTestAfterCommit != nil {
 		reloadTestAfterCommit()
 	}
-	if err := a.applyRuntimeConfig(next, httpChanged, featuresChanged, permissionsChanged, shellExecutableChanged, shellPathChanged, tunnelChanged, tunnelRuntimeChanged); err != nil {
+	if err := a.applyRuntimeConfig(next, httpChanged, permissionsChanged, shellExecutableChanged, shellPathChanged, tunnelChanged, tunnelRuntimeChanged); err != nil {
 		_, restoreErr := a.Config.Update(func(config.Config) (config.Config, error) { return previous, nil })
-		return errors.Join(err, restoreErr, a.rollbackRuntimeConfig(previous, httpChanged, featuresChanged, permissionsChanged, shellExecutableChanged, shellPathChanged, tunnelChanged, tunnelRuntimeChanged))
+		return errors.Join(err, restoreErr, a.rollbackRuntimeConfig(previous, httpChanged, permissionsChanged, shellExecutableChanged, shellPathChanged, tunnelChanged, tunnelRuntimeChanged))
 	}
 	return nil
 }
 
-func (a *App) applyRuntimeConfig(next config.Config, httpChanged, featuresChanged, permissionsChanged, shellExecutableChanged, shellPathChanged, tunnelChanged, tunnelRuntimeChanged bool) error {
-	if featuresChanged {
-		if err := a.Tools.SyncFeatures(next.Features); err != nil {
-			return err
-		}
+func (a *App) applyRuntimeConfig(next config.Config, httpChanged, permissionsChanged, shellExecutableChanged, shellPathChanged, tunnelChanged, tunnelRuntimeChanged bool) error {
+	if err := a.Tools.SyncPlugins(); err != nil {
+		return err
 	}
 	if permissionsChanged {
 		a.Tools.SetGlobalAllowDirs(next.Permissions.AllowDirs)
@@ -78,7 +75,7 @@ func (a *App) applyRuntimeConfig(next config.Config, httpChanged, featuresChange
 	return nil
 }
 
-func (a *App) rollbackRuntimeConfig(previous config.Config, httpChanged, featuresChanged, permissionsChanged, shellExecutableChanged, shellPathChanged, tunnelChanged, tunnelRuntimeChanged bool) error {
+func (a *App) rollbackRuntimeConfig(previous config.Config, httpChanged, permissionsChanged, shellExecutableChanged, shellPathChanged, tunnelChanged, tunnelRuntimeChanged bool) error {
 	var rollbackErr error
 	if tunnelChanged && a.Tunnels != nil {
 		if tunnelRuntimeChanged {
@@ -86,9 +83,7 @@ func (a *App) rollbackRuntimeConfig(previous config.Config, httpChanged, feature
 		}
 		a.syncLegacyTunnel(previous)
 	}
-	if featuresChanged {
-		rollbackErr = errors.Join(rollbackErr, a.Tools.SyncFeatures(previous.Features))
-	}
+	rollbackErr = errors.Join(rollbackErr, a.Tools.SyncPlugins())
 	if permissionsChanged {
 		a.Tools.SetGlobalAllowDirs(previous.Permissions.AllowDirs)
 	}

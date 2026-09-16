@@ -7,7 +7,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
-var SyncCompiledPlugins func(runtime *Runtime, featureConfig any) error
+var SyncCompiledPlugins func(runtime *Runtime) error
 
 type PluginSession struct {
 	Owner string

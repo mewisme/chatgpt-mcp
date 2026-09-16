@@ -4,7 +4,6 @@ import (
 	"sync"
 
 	"go.mewis.me/chatgpt-mcp/internal/caveman"
-	"go.mewis.me/chatgpt-mcp/internal/features"
 	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
 	"go.mewis.me/chatgpt-mcp/internal/ponytail"
 	"go.mewis.me/chatgpt-mcp/internal/tools"
@@ -20,14 +19,13 @@ func Install() {
 	})
 }
 
-func SyncTools(runtime *tools.Runtime, raw any) error {
+func SyncTools(runtime *tools.Runtime) error {
 	Install()
 	if runtime == nil {
 		return nil
 	}
 	Attach(runtime.PluginStore)
 	runtime.EnsurePluginSessions(compiledSessions)
-	feat, _ := raw.(features.Config)
 	settings := map[string]map[string]any{}
 	if runtime.PluginStore != nil {
 		store := pluginpkg.SettingsStore{Layout: runtime.PluginStore.Layout()}
@@ -42,8 +40,6 @@ func SyncTools(runtime *tools.Runtime, raw any) error {
 			settings[string(builtin.ID)] = values
 		}
 	}
-	settings["ponytail"] = map[string]any{"default_active": feat.Ponytail.Active, "default_mode": feat.Ponytail.Mode}
-	settings["caveman"] = map[string]any{"default_active": feat.Caveman.Active, "default_mode": feat.Caveman.Mode}
 	return runtime.ApplyPluginSettings(settings)
 }
 

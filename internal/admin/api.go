@@ -271,10 +271,8 @@ func (api API) persistConfigWithFeatures(next, previous config.Config) error {
 	if err := api.Tools.SetShellExecutable(next.Shell.Executable); err != nil {
 		return errors.Join(err, api.persistConfig(previous))
 	}
-	if next.Features != previous.Features {
-		if err := api.Tools.SyncFeatures(next.Features); err != nil {
-			return errors.Join(err, api.Tools.SetShellExecutable(previous.Shell.Executable), api.persistConfig(previous))
-		}
+	if err := api.Tools.SyncPlugins(); err != nil {
+		return errors.Join(err, api.Tools.SetShellExecutable(previous.Shell.Executable), api.persistConfig(previous))
 	}
 	api.Tools.SetGlobalAllowDirs(next.Permissions.AllowDirs)
 	api.Tools.SetShellPath(next.Shell.Path)

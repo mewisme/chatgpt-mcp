@@ -9,7 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 )
 
@@ -82,13 +81,6 @@ func TestPluginConfigSetGetReset(t *testing.T) {
 	}
 	if _, err := run("plugin", "config", "get", "missing", "default_active"); err == nil || !strings.Contains(err.Error(), "not installed") {
 		t.Fatalf("unknown plugin error = %v", err)
-	}
-	cfg, err := config.Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Features.Ponytail.Active || cfg.Features.Ponytail.Mode != "ultra" {
-		t.Fatalf("hydrated features = %#v", cfg.Features.Ponytail)
 	}
 	if _, err := run("plugin", "config", "reset", "ponytail"); err != nil {
 		t.Fatal(err)

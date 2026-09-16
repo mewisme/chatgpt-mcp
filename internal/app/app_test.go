@@ -12,8 +12,10 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/auth"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/controlguard"
+	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
 	"go.mewis.me/chatgpt-mcp/internal/upstream"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
+	ponytailplugin "go.mewis.me/chatgpt-mcp/plugins/ponytail"
 )
 
 func TestNewSharesToolRuntime(t *testing.T) {
@@ -91,7 +93,10 @@ func TestReloadConfigSwitchesMCPHTTPRuntime(t *testing.T) {
 
 func TestNewKeepsControllerToolsWhenFeatureInactive(t *testing.T) {
 	cfg := config.Default()
-	cfg.Features.Ponytail.Active = false
+	store := pluginpkg.SettingsStore{Layout: pluginpkg.DefaultLayout()}
+	if err := store.Set(ponytailplugin.Plugin().Schema, "ponytail", "default_active", false); err != nil {
+		t.Fatal(err)
+	}
 	app, err := New(cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -101,9 +106,6 @@ func TestNewKeepsControllerToolsWhenFeatureInactive(t *testing.T) {
 	}
 	if _, ok := app.Tools.Registry.Schema("caveman_turn"); !ok {
 		t.Fatal("caveman controller tool missing")
-	}
-	if app.Tools.Features().Ponytail.Active {
-		t.Fatal("ponytail active state was not preserved")
 	}
 }
 

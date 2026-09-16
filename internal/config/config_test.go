@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
+	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
 	"go.mewis.me/chatgpt-mcp/internal/secretstore"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 	cavemanplugin "go.mewis.me/chatgpt-mcp/plugins/caveman"
@@ -392,49 +393,17 @@ func TestDefaultServerUsesExposurePolicy(t *testing.T) {
 	}
 }
 
-func TestDefaultFeaturesActive(t *testing.T) {
-	cfg := Default()
-	if !cfg.Features.Ponytail.Active || cfg.Features.Ponytail.Mode != "full" || !cfg.Features.Caveman.Active || cfg.Features.Caveman.Mode != "full" {
-		t.Fatalf("features = %#v", cfg.Features)
+func pluginSettings(t *testing.T, configPath, id string) map[string]any {
+	t.Helper()
+	schema := ponytailplugin.Plugin().Schema
+	if id == "caveman" {
+		schema = cavemanplugin.Plugin().Schema
 	}
-}
-
-func TestValidatePonytailDefaultMode(t *testing.T) {
-	cfg := Default()
-	cfg.Auth.MCPEnabled = false
-	cfg.Auth.AdminEnabled = false
-	cfg.Server.AllowUnauthenticatedLoopback = true
-	for _, mode := range []string{"lite", "full", "ultra"} {
-		cfg.Features.Ponytail.Mode = mode
-		if err := Validate(cfg); err != nil {
-			t.Fatalf("mode %q rejected: %v", mode, err)
-		}
+	values, err := settingsStoreForConfigPath(configPath).Get(schema, pluginpkg.PluginID(id))
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, mode := range []string{"", "off", "review", "max"} {
-		cfg.Features.Ponytail.Mode = mode
-		if err := Validate(cfg); err == nil {
-			t.Fatalf("mode %q accepted", mode)
-		}
-	}
-}
-
-func TestValidateCavemanDefaultMode(t *testing.T) {
-	cfg := Default()
-	cfg.Auth.MCPEnabled = false
-	cfg.Auth.AdminEnabled = false
-	cfg.Server.AllowUnauthenticatedLoopback = true
-	for _, mode := range []string{"lite", "full", "ultra", "wenyan-lite", "wenyan-full", "wenyan-ultra"} {
-		cfg.Features.Caveman.Mode = mode
-		if err := Validate(cfg); err != nil {
-			t.Fatalf("mode %q rejected: %v", mode, err)
-		}
-	}
-	for _, mode := range []string{"", "off", "wenyan", "commit", "review", "compress", "max"} {
-		cfg.Features.Caveman.Mode = mode
-		if err := Validate(cfg); err == nil {
-			t.Fatalf("mode %q accepted", mode)
-		}
-	}
+	return values
 }
 
 func TestNormalizeShellPath(t *testing.T) {
@@ -529,8 +498,9 @@ func TestLegacyConfigWithoutFeaturesKeepsEnabledDefaults(t *testing.T) {
 				if !loaded.Server.Enabled {
 					t.Fatalf("legacy %s config disabled MCP HTTP", format)
 				}
-				if !loaded.Features.Ponytail.Active || loaded.Features.Ponytail.Mode != "full" || !loaded.Features.Caveman.Active || loaded.Features.Caveman.Mode != "full" {
-					t.Fatalf("legacy %s features = %#v", format, loaded.Features)
+				values := pluginSettings(t, configPath, "ponytail")
+				if values["default_active"] != true || values["default_mode"] != "full" {
+					t.Fatalf("legacy %s ponytail = %#v", format, values)
 				}
 				if _, err := os.Stat(filepath.Join(root, "plugins", "config", "ponytail.json")); !errors.Is(err, os.ErrNotExist) {
 					t.Fatal("legacy load materialized plugin defaults")
@@ -597,8 +567,16 @@ func TestPartialFeaturesKeepMissingFeatureDefault(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if loaded.Features.Ponytail.Active || loaded.Features.Ponytail.Mode != "full" || !loaded.Features.Caveman.Active || loaded.Features.Caveman.Mode != "full" {
-				t.Fatalf("partial %s features = %#v", format, loaded.Features)
+			if loaded.Server.Port != 37421 {
+				t.Fatalf("partial %s port = %d", format, loaded.Server.Port)
+			}
+			values := pluginSettings(t, configPath, "ponytail")
+			if values["default_active"] != false || values["default_mode"] != "full" {
+				t.Fatalf("partial %s ponytail = %#v", format, values)
+			}
+			caveman := pluginSettings(t, configPath, "caveman")
+			if caveman["default_active"] != true || caveman["default_mode"] != "full" {
+				t.Fatalf("partial %s caveman = %#v", format, caveman)
 			}
 			rewritten, err := os.ReadFile(configPath)
 			if err != nil {
@@ -614,14 +592,6 @@ func TestPartialFeaturesKeepMissingFeatureDefault(t *testing.T) {
 			}
 			if _, exists := rewrittenRoot["features"]; exists {
 				t.Fatalf("legacy features section was kept: %#v", rewrittenRoot)
-			}
-			store := settingsStoreForConfigPath(configPath)
-			values, err := store.Get(ponytailplugin.Plugin().Schema, "ponytail")
-			if err != nil {
-				t.Fatal(err)
-			}
-			if values["default_active"] != false || values["default_mode"] != "full" {
-				t.Fatalf("migrated ponytail = %#v", values)
 			}
 			if _, err := os.Stat(filepath.Join(root, "plugins.json")); !errors.Is(err, os.ErrNotExist) {
 				t.Fatal("active=false disabled the built-in plugin")
@@ -644,12 +614,12 @@ func TestLegacyFeaturesDoNotOverwritePluginSettings(t *testing.T) {
 	if err := store.Set(ponytailplugin.Plugin().Schema, "ponytail", "default_mode", "lite"); err != nil {
 		t.Fatal(err)
 	}
-	loaded, err := loadAt(configPath, secretPath)
-	if err != nil {
+	if _, err := loadAt(configPath, secretPath); err != nil {
 		t.Fatal(err)
 	}
-	if loaded.Features.Ponytail.Active || loaded.Features.Ponytail.Mode != "lite" {
-		t.Fatalf("plugin settings lost: %#v", loaded.Features.Ponytail)
+	values := pluginSettings(t, configPath, "ponytail")
+	if values["default_active"] != false || values["default_mode"] != "lite" {
+		t.Fatalf("plugin settings lost: %#v", values)
 	}
 }
 
@@ -664,12 +634,12 @@ func TestLoadHydratesPluginSettingsWithoutCoreConfig(t *testing.T) {
 	if err := store.Set(ponytailplugin.Plugin().Schema, "ponytail", "default_mode", "ultra"); err != nil {
 		t.Fatal(err)
 	}
-	loaded, err := loadAt(configPath, secretPath)
-	if err != nil {
+	if _, err := loadAt(configPath, secretPath); err != nil {
 		t.Fatal(err)
 	}
-	if loaded.Features.Ponytail.Active || loaded.Features.Ponytail.Mode != "ultra" {
-		t.Fatalf("hydrated without core config = %#v", loaded.Features.Ponytail)
+	values := pluginSettings(t, configPath, "ponytail")
+	if values["default_active"] != false || values["default_mode"] != "ultra" {
+		t.Fatalf("plugin settings lost without core config: %#v", values)
 	}
 }
 
@@ -680,9 +650,16 @@ func TestSaveOmitsFeaturesAndPersistsPluginSettings(t *testing.T) {
 			configPath := configformat.PathFor(root, "config", format)
 			secretPath := configformat.PathFor(root, "tunnel", format)
 			cfg := Default()
-			cfg.Features.Ponytail.Active = false
-			cfg.Features.Ponytail.Mode = "ultra"
-			cfg.Features.Caveman.Active = false
+			store := settingsStoreForConfigPath(configPath)
+			if err := store.Set(ponytailplugin.Plugin().Schema, "ponytail", "default_active", false); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.Set(ponytailplugin.Plugin().Schema, "ponytail", "default_mode", "ultra"); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.Set(cavemanplugin.Plugin().Schema, "caveman", "default_active", false); err != nil {
+				t.Fatal(err)
+			}
 			if err := saveAt(configPath, secretPath, cfg); err != nil {
 				t.Fatal(err)
 			}
@@ -704,27 +681,16 @@ func TestSaveOmitsFeaturesAndPersistsPluginSettings(t *testing.T) {
 			if _, exists := rootValue["interactive"]; exists {
 				t.Fatalf("obsolete interactive key serialized: %#v", rootValue)
 			}
-			store := settingsStoreForConfigPath(configPath)
-			ponytail, err := store.Get(ponytailplugin.Plugin().Schema, "ponytail")
-			if err != nil {
+			if _, err := loadAt(configPath, secretPath); err != nil {
 				t.Fatal(err)
 			}
+			ponytail := pluginSettings(t, configPath, "ponytail")
 			if ponytail["default_active"] != false || ponytail["default_mode"] != "ultra" {
 				t.Fatalf("ponytail settings = %#v", ponytail)
 			}
-			caveman, err := store.Get(cavemanplugin.Plugin().Schema, "caveman")
-			if err != nil {
-				t.Fatal(err)
-			}
+			caveman := pluginSettings(t, configPath, "caveman")
 			if caveman["default_active"] != false || caveman["default_mode"] != "full" {
 				t.Fatalf("caveman settings = %#v", caveman)
-			}
-			loaded, err := loadAt(configPath, secretPath)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if loaded.Features.Ponytail.Active || loaded.Features.Ponytail.Mode != "ultra" || loaded.Features.Caveman.Active {
-				t.Fatalf("reloaded features = %#v", loaded.Features)
 			}
 		})
 	}
@@ -734,7 +700,6 @@ func TestFeatureConfigIsOmittedFromSerialization(t *testing.T) {
 	for _, format := range []configformat.Format{configformat.JSON, configformat.YAML, configformat.TOML} {
 		t.Run(string(format), func(t *testing.T) {
 			cfg := Default()
-			cfg.Features.Ponytail.Active = false
 			data, err := configformat.Marshal(format, cfg)
 			if err != nil {
 				t.Fatal(err)

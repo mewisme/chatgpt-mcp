@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
-	"go.mewis.me/chatgpt-mcp/internal/features"
 	"go.mewis.me/chatgpt-mcp/internal/notification"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 )
@@ -21,7 +20,6 @@ type Config struct {
 	Auth          AuthConfig            `json:"auth"`
 	Permissions   PermissionsConfig     `json:"permissions"`
 	Shell         ShellConfig           `json:"shell"`
-	Features      FeaturesConfig        `json:"-"`
 	Tunnel        tunnel.Config         `json:"tunnel"`
 	Notifications notification.Settings `json:"notifications"`
 }
@@ -109,10 +107,8 @@ type AuthConfig struct {
 	AdminTokenHash  string `json:"admin_token_hash,omitempty"`
 }
 
-type FeaturesConfig = features.Config
-
 func Default() Config {
-	return Config{Server: ServerConfig{Enabled: true, Port: 37421, Expose: ExposureConfig{Mode: ExposureNone, Interfaces: []string{}}}, Admin: AdminConfig{Enabled: true, Port: 37422}, Auth: AuthConfig{MCPEnabled: true, MCPLegacyBearer: true, AdminEnabled: true}, Permissions: PermissionsConfig{AllowDirs: []string{}}, Shell: ShellConfig{Path: []string{}}, Features: features.Default(), Tunnel: tunnel.Config{Enabled: false}, Notifications: notification.DefaultSettings()}
+	return Config{Server: ServerConfig{Enabled: true, Port: 37421, Expose: ExposureConfig{Mode: ExposureNone, Interfaces: []string{}}}, Admin: AdminConfig{Enabled: true, Port: 37422}, Auth: AuthConfig{MCPEnabled: true, MCPLegacyBearer: true, AdminEnabled: true}, Permissions: PermissionsConfig{AllowDirs: []string{}}, Shell: ShellConfig{Path: []string{}}, Tunnel: tunnel.Config{Enabled: false}, Notifications: notification.DefaultSettings()}
 }
 
 func (value *ExposureConfig) UnmarshalJSON(data []byte) error {
@@ -236,9 +232,6 @@ func loadAtWithTunnelSecretPolicy(configPath, secretPath string, policy tunnelSe
 	data, _, err := readConfigFile(configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			if hydrateErr := hydrateFeatureSettings(configPath, &cfg); hydrateErr != nil {
-				return cfg, hydrateErr
-			}
 			return cfg, nil
 		}
 		return cfg, err
@@ -376,9 +369,6 @@ func saveAtWithSecretSaver(configPath, secretPath string, cfg Config, saveSecret
 	persisted.Tunnel.AdminOrganizationID = ""
 	persisted.Tunnel.AdminWorkspaceID = ""
 	persisted.Tunnel.AdminTenantID = ""
-	if err := persistFeatureSettings(configPath, cfg); err != nil {
-		return err
-	}
 	data, err := mergeConfigData(configPath, persisted, cfg)
 	if err != nil {
 		return err

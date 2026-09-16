@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"go.mewis.me/chatgpt-mcp/internal/features"
 	"go.mewis.me/chatgpt-mcp/internal/tools"
 )
 
@@ -161,9 +160,13 @@ func TestHTTPRuntimeToolCallRequiresMatchingNameHeader(t *testing.T) {
 }
 
 func TestHTTPRuntimePonytailUsesBuiltInConfiguredMode(t *testing.T) {
-	featureConfig := features.Default()
-	featureConfig.Ponytail.Mode = "ultra"
-	toolRuntime := tools.NewRuntimeWithFeatures(featureConfig)
+	toolRuntime := tools.NewRuntime()
+	if err := toolRuntime.ApplyPluginSettings(map[string]map[string]any{
+		"ponytail": {"default_active": true, "default_mode": "ultra"},
+		"caveman":  {"default_active": true, "default_mode": "full"},
+	}); err != nil {
+		t.Fatal(err)
+	}
 	item, err := toolRuntime.Workspaces.Register(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -185,9 +188,13 @@ func TestHTTPRuntimePonytailUsesBuiltInConfiguredMode(t *testing.T) {
 }
 
 func TestHTTPRuntimeCavemanUsesBuiltInConfiguredMode(t *testing.T) {
-	featureConfig := features.Default()
-	featureConfig.Caveman.Mode = "wenyan-ultra"
-	toolRuntime := tools.NewRuntimeWithFeatures(featureConfig)
+	toolRuntime := tools.NewRuntime()
+	if err := toolRuntime.ApplyPluginSettings(map[string]map[string]any{
+		"ponytail": {"default_active": true, "default_mode": "full"},
+		"caveman":  {"default_active": true, "default_mode": "wenyan-ultra"},
+	}); err != nil {
+		t.Fatal(err)
+	}
 	item, err := toolRuntime.Workspaces.Register(t.TempDir())
 	if err != nil {
 		t.Fatal(err)

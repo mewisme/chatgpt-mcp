@@ -69,13 +69,12 @@ func TestReloadConfigUpdatesLiveRuntime(t *testing.T) {
 	next := cfg
 	next.Auth.MCPEnabled = true
 	next.Auth.MCPTokenHash = "hash"
-	next.Features.Ponytail.Active = false
 	next.Permissions.AllowDirs = []string{t.TempDir()}
 	if err := app.ReloadConfig(next); err != nil {
 		t.Fatal(err)
 	}
 	got := app.Config.Snapshot()
-	if !got.Auth.MCPEnabled || got.Features.Ponytail.Active || len(got.Permissions.AllowDirs) != 1 {
+	if !got.Auth.MCPEnabled || len(got.Permissions.AllowDirs) != 1 {
 		t.Fatalf("runtime config = %#v", got)
 	}
 	if _, ok := app.Tools.Registry.Schema("ponytail_turn"); !ok {
@@ -176,7 +175,6 @@ func TestReloadConfigFailedApplyRestoresCommittedConfig(t *testing.T) {
 	next := previous
 	next.Auth.MCPEnabled = true
 	next.Auth.MCPTokenHash = "hash"
-	next.Features.Ponytail.Active = !previous.Features.Ponytail.Active
 	next.Permissions.AllowDirs = []string{t.TempDir()}
 	next.Shell.Path = []string{t.TempDir()}
 	if err := app.ReloadConfig(next); err == nil {
@@ -186,9 +184,6 @@ func TestReloadConfigFailedApplyRestoresCommittedConfig(t *testing.T) {
 	if got.Auth.MCPEnabled != previous.Auth.MCPEnabled || got.Auth.MCPTokenHash != previous.Auth.MCPTokenHash {
 		t.Fatalf("committed auth not restored: %#v", got.Auth)
 	}
-	if got.Features.Ponytail.Active != previous.Features.Ponytail.Active {
-		t.Fatalf("committed features not restored: %#v", got.Features)
-	}
 	if len(got.Permissions.AllowDirs) != len(previous.Permissions.AllowDirs) {
 		t.Fatalf("committed permissions not restored: %#v", got.Permissions)
 	}
@@ -197,9 +192,6 @@ func TestReloadConfigFailedApplyRestoresCommittedConfig(t *testing.T) {
 	}
 	if runtimePath := app.Tools.Workspaces.ShellPath(); len(runtimePath) != len(previous.Shell.Path) {
 		t.Fatalf("runtime shell path = %#v, want %#v", runtimePath, previous.Shell.Path)
-	}
-	if app.Tools.Features().Ponytail.Active != previous.Features.Ponytail.Active {
-		t.Fatalf("runtime features = %#v", app.Tools.Features())
 	}
 }
 

@@ -11,7 +11,6 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/approval"
 	"go.mewis.me/chatgpt-mcp/internal/checkpoint"
 	"go.mewis.me/chatgpt-mcp/internal/controlguard"
-	"go.mewis.me/chatgpt-mcp/internal/features"
 	"go.mewis.me/chatgpt-mcp/internal/idgen"
 	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
 	shellruntime "go.mewis.me/chatgpt-mcp/internal/shell"
@@ -42,20 +41,14 @@ type Runtime struct {
 	LoopGuard       *ToolLoopGuard
 	PluginReconcile pluginpkg.ReconcileReport
 	sessionMu       sync.Mutex
-	featureMu       sync.Mutex
-	features        features.Config
 	pluginSessions  []PluginSession
 }
 
 func NewRuntime() *Runtime {
-	return NewRuntimeWithFeatures(features.Default())
+	return NewRuntimeWithAccess(nil)
 }
 
-func NewRuntimeWithFeatures(featureConfig features.Config) *Runtime {
-	return NewRuntimeWithAccess(featureConfig, nil)
-}
-
-func NewRuntimeWithAccess(featureConfig features.Config, globalAllowDirs []string, environments ...ProjectContextEnvironment) *Runtime {
+func NewRuntimeWithAccess(globalAllowDirs []string, environments ...ProjectContextEnvironment) *Runtime {
 	workspaces := workspace.NewManagerWithGlobalAllowDirs(workspace.DefaultStorePath(), globalAllowDirs)
 	checkpoints := checkpoint.NewWorkspaceStore(checkpoint.DefaultRoot(), workspaces)
 	upstreams := upstream.NewManager(upstream.NewStore(upstream.Path()))
@@ -87,7 +80,7 @@ func NewRuntimeWithAccess(featureConfig features.Config, globalAllowDirs []strin
 	registerCoreWithManagers(registry, workspaces, checkpoints, environment, shell, processes)
 	RegisterApprovalTools(registry, runtime)
 	RegisterUpstreamTools(registry, upstreams)
-	if err := runtime.SyncFeatures(featureConfig); err != nil {
+	if err := runtime.SyncPlugins(); err != nil {
 		panic(err)
 	}
 
@@ -104,26 +97,14 @@ func (r *Runtime) RefreshUpstreams(ctx context.Context, force bool) error {
 	return RefreshUpstreamProxies(ctx, r.Registry, r.Upstream, force)
 }
 
-func (r *Runtime) SyncFeatures(featureConfig features.Config) error {
+func (r *Runtime) SyncPlugins() error {
 	if r == nil || r.Registry == nil || r.Workspaces == nil {
 		return errors.New("tool runtime is unavailable")
 	}
-	r.featureMu.Lock()
-	defer r.featureMu.Unlock()
-	r.features = featureConfig
 	if SyncCompiledPlugins == nil {
 		return nil
 	}
-	return SyncCompiledPlugins(r, featureConfig)
-}
-
-func (r *Runtime) Features() features.Config {
-	if r == nil {
-		return features.Config{}
-	}
-	r.featureMu.Lock()
-	defer r.featureMu.Unlock()
-	return r.features
+	return SyncCompiledPlugins(r)
 }
 
 func (r *Runtime) SetGlobalAllowDirs(allowDirs []string) {

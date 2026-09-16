@@ -206,3 +206,30 @@ func TestAttachPluginPeersWiresGlobalAndWorkspaceStores(t *testing.T) {
 		t.Fatalf("workspace peers = %#v", scoped.Peers())
 	}
 }
+
+func TestNewPluginServiceForOptionsUsesWorkspaceLayout(t *testing.T) {
+	t.Setenv(configformat.EnvConfigDir, t.TempDir())
+	item, err := workspace.NewManager(workspace.DefaultStorePath()).Register(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := NewPluginServiceForOptions(PluginScopeOptions{Scope: "workspace", Workspace: item.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if service.Layout.EffectiveScope() != pluginpkg.ScopeWorkspace || service.Workspace != item.ID {
+		t.Fatalf("service = %#v", service)
+	}
+	items, err := service.Installed()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, listed := range items {
+		if listed.Origin == pluginpkg.OriginBuiltin {
+			t.Fatalf("workspace service included builtin %s", listed.ID)
+		}
+		if listed.Scope != pluginpkg.ScopeWorkspace {
+			t.Fatalf("listed scope = %#v", listed)
+		}
+	}
+}

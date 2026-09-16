@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/application"
 	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
+	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
 const pluginOperationTimeout = 2 * time.Minute
@@ -48,6 +50,7 @@ const (
 	pluginOverlayConfirm
 	pluginOverlayOperation
 	pluginOverlayHostInstall
+	pluginOverlayPick
 )
 
 type pluginHostInstallOption struct {
@@ -81,12 +84,19 @@ type pluginRegistryFormData struct {
 	Unqualified bool
 }
 
+type pluginPickOption struct {
+	label   string
+	path    []string
+	install application.PluginScopeOptions
+}
+
 type PluginPage struct {
 	ctx              context.Context
 	service          *application.PluginService
 	resourceID       string
 	section          string
 	action           string
+	workspaceID      string
 	browser          component.Browser
 	detail           component.DetailPage
 	installed        map[pluginpkg.PluginID]application.InstalledPluginInfo
@@ -100,6 +110,11 @@ type PluginPage struct {
 	confirm          component.ConfirmButtons
 	command          PluginCommand
 	targetID         string
+	installScope     application.PluginScopeOptions
+	pickTitle        string
+	pickOptions      []pluginPickOption
+	pickIndex        int
+	pickInstall      string
 	progress         *component.Progress
 	operationCancel  context.CancelFunc
 	hostPrerequisite *pluginpkg.HostPrerequisiteError
@@ -115,11 +130,16 @@ type PluginPage struct {
 }
 
 func NewPlugins(ctx context.Context, resourceID, section string) (*PluginPage, error) {
-	return NewPluginsRouteAction(ctx, resourceID, section, "")
+	return NewPluginsRouteAction(ctx, resourceID, section, "", "")
 }
 
-func NewPluginsRouteAction(ctx context.Context, resourceID, section, action string) (*PluginPage, error) {
-	service, err := application.NewPluginService()
+func NewPluginsRouteAction(ctx context.Context, resourceID, section, action, workspaceID string) (*PluginPage, error) {
+	opts := application.PluginScopeOptions{}
+	if strings.TrimSpace(workspaceID) != "" {
+		opts.Scope = string(pluginpkg.ScopeWorkspace)
+		opts.Workspace = workspaceID
+	}
+	service, err := application.NewPluginServiceForOptions(opts)
 	if err != nil {
 		return nil, err
 	}
@@ -134,7 +154,7 @@ func newPluginsRouteAction(ctx context.Context, resourceID, section, action stri
 		return nil, fmt.Errorf("plugin service is required")
 	}
 	page := &PluginPage{
-		ctx: ctx, service: service, resourceID: strings.TrimSpace(resourceID), section: strings.TrimSpace(section), action: strings.TrimSpace(action),
+		ctx: ctx, service: service, resourceID: strings.TrimSpace(resourceID), section: strings.TrimSpace(section), action: strings.TrimSpace(action), workspaceID: strings.TrimSpace(service.Workspace),
 		installed: map[pluginpkg.PluginID]application.InstalledPluginInfo{}, marketplace: map[string]application.MarketplacePluginInfo{}, updates: map[pluginpkg.PluginID]pluginpkg.OutdatedPlugin{}, registries: map[string]application.PluginRegistryInfo{},
 	}
 	page.browser = component.NewBrowser(ctx, page.browserTitle(), nil, nil).WithTitleVisible(false).WithHelpBindings(page.sectionBindings()...)
@@ -244,6 +264,12 @@ func (page *PluginPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		}
 		return page, nil
 	}
+	if page.overlay == pluginOverlayPick {
+		if key, ok := message.(tea.KeyPressMsg); ok {
+			return page, page.updatePick(key)
+		}
+		return page, nil
+	}
 	if page.overlay == pluginOverlayConfirm {
 		if key, ok := message.(tea.KeyPressMsg); ok {
 			return page, page.updateConfirm(key)
@@ -319,6 +345,9 @@ func (page *PluginPage) View(width, height int) string {
 	case pluginOverlayHostInstall:
 		modalWidth := overlayWidth(width, 84)
 		content = component.CenterOverlay(content, component.Modal(component.WrapModalBody(page.hostInstallBody(), modalWidth), modalWidth), width, height)
+	case pluginOverlayPick:
+		modalWidth := overlayWidth(width, 72)
+		content = component.CenterOverlay(content, component.Modal(component.WrapModalBody(page.pickBody(), modalWidth), modalWidth), width, height)
 	}
 	return content
 }
@@ -333,7 +362,7 @@ func (page *PluginPage) MouseTargets(originX, originY, z int) []component.MouseT
 	switch page.overlay {
 	case pluginOverlayConfirm:
 		return confirmOverlayMouseTargets(page.confirm, page.confirmTitle(), page.confirmDescription(), overlayWidth(page.width, 72), page.width, page.height, originX, originY, z+20)
-	case pluginOverlayOperation, pluginOverlayHostInstall:
+	case pluginOverlayOperation, pluginOverlayHostInstall, pluginOverlayPick:
 		return []component.MouseTarget{mouseBlocker(originX, originY, page.width, page.height, z+20)}
 	default:
 		if page.resourceID != "" {
@@ -350,26 +379,38 @@ func (page *PluginPage) MouseTargets(originX, originY, z int) []component.MouseT
 func (page *PluginPage) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 	switch msg.String() {
 	case "1", "alt+1":
-		return navigatePluginSection(""), true
+		return navigatePluginSection(page.workspaceID, ""), true
 	case "2", "alt+2":
-		return navigatePluginSection("marketplace"), true
+		return navigatePluginSection(page.workspaceID, "marketplace"), true
 	case "3", "alt+3":
-		return navigatePluginSection("updates"), true
+		return navigatePluginSection(page.workspaceID, "updates"), true
 	case "4", "alt+4":
-		return navigatePluginSection("registries"), true
+		return navigatePluginSection(page.workspaceID, "registries"), true
+	case "g":
+		return navigatePluginSection("", page.section), true
+	case "w":
+		return page.openWorkspacePicker(), true
 	case "r":
 		page.loading = true
 		return page.loadCmd(), true
 	case "a":
-		if page.resourceID == "" && page.section == "registries" {
-			return func() tea.Msg { return NavigateMsg{Path: []string{"plugins", "registries", "add"}} }, true
+		if page.resourceID == "" && page.section == "registries" && page.workspaceID == "" {
+			return func() tea.Msg { return NavigateMsg{Path: pluginRoutePath("", "registries", "add")} }, true
 		}
 	}
 	return nil, false
 }
 
-func navigatePluginSection(section string) tea.Cmd {
+func pluginRoutePath(workspaceID string, parts ...string) []string {
 	path := []string{"plugins"}
+	if strings.TrimSpace(workspaceID) != "" {
+		path = append(path, "@"+workspaceID)
+	}
+	return append(path, parts...)
+}
+
+func navigatePluginSection(workspaceID, section string) tea.Cmd {
+	path := pluginRoutePath(workspaceID)
 	if section != "" {
 		path = append(path, section)
 	}
@@ -377,9 +418,9 @@ func navigatePluginSection(section string) tea.Cmd {
 }
 
 func (page *PluginPage) openRow(id string) tea.Cmd {
-	path := []string{"plugins", id}
+	path := pluginRoutePath(page.workspaceID, id)
 	if page.section != "" {
-		path = []string{"plugins", page.section, id}
+		path = pluginRoutePath(page.workspaceID, page.section, id)
 	}
 	return func() tea.Msg { return NavigateMsg{Path: path} }
 }
@@ -505,7 +546,8 @@ func (page *PluginPage) rows() []component.Row {
 			if item.Publisher.Trusted {
 				trust = "trusted"
 			}
-			rows = append(rows, component.Row{ID: item.Reference, Title: item.Entry.Name, Description: item.Reference + " · " + item.Entry.Description, Meta: string(item.Entry.Stable) + " · " + string(item.Entry.Type) + " · " + trust + " · " + state, Search: strings.Join([]string{item.Reference, item.Entry.Name, item.Entry.Description, item.Publisher.Name, string(item.Entry.Type)}, " ")})
+			scopes := formatPluginScopes(item.Entry.AllowedScopes())
+			rows = append(rows, component.Row{ID: item.Reference, Title: item.Entry.Name, Description: item.Reference + " · " + item.Entry.Description, Meta: string(item.Entry.Stable) + " · " + string(item.Entry.Type) + " · " + trust + " · " + state + " · " + scopes, Search: strings.Join([]string{item.Reference, item.Entry.Name, item.Entry.Description, item.Publisher.Name, string(item.Entry.Type), scopes}, " ")})
 		}
 		return rows
 	case "updates":
@@ -545,7 +587,7 @@ func (page *PluginPage) rows() []component.Row {
 			if item.Origin == pluginpkg.OriginBuiltin {
 				origin = item.Origin.Label()
 			}
-			rows = append(rows, component.Row{ID: string(id), Title: item.Installed.Manifest.Name, Description: string(id) + " · " + origin, Meta: string(item.Lock.Version) + " · " + string(item.Installed.Manifest.Type) + " · " + state, Search: strings.Join([]string{string(id), item.Installed.Manifest.Name, string(item.Lock.Version), origin}, " ")})
+			rows = append(rows, component.Row{ID: string(id), Title: item.Installed.Manifest.Name, Description: string(id) + " · " + origin, Meta: string(item.Lock.Version) + " · " + string(item.Installed.Manifest.Type) + " · " + string(item.Scope) + " · " + state, Search: strings.Join([]string{string(id), item.Installed.Manifest.Name, string(item.Lock.Version), origin, string(item.Scope)}, " ")})
 		}
 		return rows
 	}
@@ -560,12 +602,15 @@ func (page *PluginPage) rowActions() []component.RowAction {
 	switch page.section {
 	case "marketplace":
 		return []component.RowAction{
-			command("i", "install", PluginInstall, func(row component.Row) bool { return page.marketplace[row.ID].Installed == nil }),
+			command("i", "install", PluginInstall, func(row component.Row) bool { return page.canInstall(row.ID) }),
 			command("u", "update", PluginUpdate, func(row component.Row) bool { return page.marketplace[row.ID].Installed != nil }),
 		}
 	case "updates":
 		return []component.RowAction{command("u", "update", PluginUpdate, nil)}
 	case "registries":
+		if page.workspaceID != "" {
+			return nil
+		}
 		return []component.RowAction{command("d", "remove", PluginRegistryRemove, func(row component.Row) bool { return row.ID != pluginpkg.OfficialRegistryName })}
 	default:
 		return []component.RowAction{
@@ -577,7 +622,7 @@ func (page *PluginPage) rowActions() []component.RowAction {
 				When: func(row component.Row) bool { return page.pluginLifecycle(row.ID).Configure },
 				Run: func(row component.Row) (string, tea.Cmd, error) {
 					id := row.ID
-					return "", func() tea.Msg { return NavigateMsg{Path: []string{"plugins", id, "configure"}} }, nil
+					return "", func() tea.Msg { return NavigateMsg{Path: pluginRoutePath(page.workspaceID, id, "configure")} }, nil
 				},
 			},
 			command("x", "reset config", PluginConfigReset, func(row component.Row) bool { return page.pluginLifecycle(row.ID).Configure }),
@@ -595,23 +640,27 @@ func (page *PluginPage) sectionBindings() []key.Binding {
 	bindings := []key.Binding{
 		component.Binding([]string{"1", "alt+1"}, "1", "installed"), component.Binding([]string{"2", "alt+2"}, "2", "marketplace"), component.Binding([]string{"3", "alt+3"}, "3", "updates"), component.Binding([]string{"4", "alt+4"}, "4", "registries"), component.Binding([]string{"r"}, "r", "refresh"),
 	}
-	if page.section == "registries" && page.resourceID == "" {
+	if page.section == "registries" && page.resourceID == "" && page.workspaceID == "" {
 		bindings = append(bindings, component.Binding([]string{"a"}, "a", "add"))
 	}
+	bindings = append(bindings, component.Binding([]string{"g"}, "g", "global"), component.Binding([]string{"w"}, "w", "workspace"))
 	return bindings
 }
 
 func (page *PluginPage) browserTitle() string {
+	title := "Installed Plugins"
 	switch page.section {
 	case "marketplace":
-		return "Plugin Marketplace"
+		title = "Plugin Marketplace"
 	case "updates":
-		return "Plugin Updates"
+		title = "Plugin Updates"
 	case "registries":
-		return "Plugin Registries"
-	default:
-		return "Installed Plugins"
+		title = "Plugin Registries"
 	}
+	if page.workspaceID != "" {
+		return title + " · Workspace: " + page.workspaceID
+	}
+	return title + " · Global"
 }
 
 func (page *PluginPage) pluginLifecycle(id string) pluginpkg.Lifecycle {
@@ -718,10 +767,20 @@ func (page *PluginPage) updateConfirm(msg tea.KeyPressMsg) tea.Cmd {
 	}
 	command, target := page.command, page.targetID
 	page.closeOverlay()
+	if command == PluginInstall {
+		if cmd := page.prepareInstall(target); cmd != nil || page.overlay == pluginOverlayPick {
+			return cmd
+		}
+	}
 	return page.startOperation(command, target)
 }
 
 func (page *PluginPage) startOperation(command PluginCommand, target string) tea.Cmd {
+	service, err := page.operationService()
+	if err != nil {
+		page.err = err
+		return nil
+	}
 	ctx, cancel := context.WithTimeout(page.ctx, pluginOperationTimeout)
 	page.operationCancel = cancel
 	page.command, page.targetID = command, target
@@ -732,14 +791,14 @@ func (page *PluginPage) startOperation(command PluginCommand, target string) tea
 		msg := pluginOperationMsg{command: command, target: target}
 		switch command {
 		case PluginInstall:
-			_, msg.err = page.service.Install(ctx, target)
+			_, msg.err = service.Install(ctx, target)
 			msg.notice = "Plugin installed"
 		case PluginUpdate:
 			id, err := pluginID(target)
 			if err != nil {
 				msg.err = err
 			} else {
-				_, msg.err = page.service.Update(ctx, id)
+				_, msg.err = service.Update(ctx, id)
 			}
 			msg.notice = "Plugin updated"
 		case PluginRollback:
@@ -747,7 +806,7 @@ func (page *PluginPage) startOperation(command PluginCommand, target string) tea
 			if err != nil {
 				msg.err = err
 			} else {
-				_, msg.err = page.service.Rollback(ctx, id)
+				_, msg.err = service.Rollback(ctx, id)
 			}
 			msg.notice = "Plugin rolled back"
 		case PluginPrune:
@@ -755,7 +814,7 @@ func (page *PluginPage) startOperation(command PluginCommand, target string) tea
 			if err != nil {
 				msg.err = err
 			} else {
-				_, msg.err = page.service.Prune(id)
+				_, msg.err = service.Prune(id)
 			}
 			msg.notice = "Plugin versions pruned"
 		case PluginUninstall, PluginForceUninstall:
@@ -763,7 +822,7 @@ func (page *PluginPage) startOperation(command PluginCommand, target string) tea
 			if err != nil {
 				msg.err = err
 			} else {
-				msg.err = page.service.Uninstall(ctx, id, command == PluginForceUninstall)
+				msg.err = service.Uninstall(ctx, id, command == PluginForceUninstall)
 			}
 			msg.notice = "Plugin uninstalled"
 		case PluginEnable, PluginDisable:
@@ -771,7 +830,7 @@ func (page *PluginPage) startOperation(command PluginCommand, target string) tea
 			if err != nil {
 				msg.err = err
 			} else {
-				msg.err = page.service.SetEnabled(ctx, id, command == PluginEnable)
+				msg.err = service.SetEnabled(ctx, id, command == PluginEnable)
 			}
 			msg.notice = "Plugin disabled"
 			if command == PluginEnable {
@@ -782,18 +841,18 @@ func (page *PluginPage) startOperation(command PluginCommand, target string) tea
 			if err != nil {
 				msg.err = err
 			} else {
-				msg.err = page.service.Verify(ctx, id)
+				msg.err = service.Verify(ctx, id)
 			}
 			msg.notice = "Plugin verified"
 		case PluginRegistryRemove:
-			msg.err = page.service.RemoveRegistry(ctx, target)
+			msg.err = service.RemoveRegistry(ctx, target)
 			msg.notice = "Plugin registry removed"
 		case PluginConfigReset:
 			id, err := pluginID(target)
 			if err != nil {
 				msg.err = err
 			} else {
-				msg.err = page.service.ResetPluginSetting(ctx, id, "")
+				msg.err = service.ResetPluginSetting(ctx, id, "")
 			}
 			msg.notice = "Plugin configuration reset"
 		default:
@@ -821,10 +880,10 @@ func (page *PluginPage) finishOperation(msg pluginOperationMsg) tea.Cmd {
 	}
 	page.notice = msg.notice
 	if (msg.command == PluginUninstall || msg.command == PluginForceUninstall) && page.resourceID != "" && page.section == "" {
-		return func() tea.Msg { return NavigateMsg{Path: []string{"plugins"}, Replace: true} }
+		return func() tea.Msg { return NavigateMsg{Path: pluginRoutePath(page.workspaceID), Replace: true} }
 	}
 	if msg.command == PluginRegistryRemove && page.resourceID != "" {
-		return func() tea.Msg { return NavigateMsg{Path: []string{"plugins", "registries"}, Replace: true} }
+		return func() tea.Msg { return NavigateMsg{Path: pluginRoutePath("", "registries"), Replace: true} }
 	}
 	page.loading = true
 	return page.loadCmd()
@@ -883,16 +942,23 @@ func (page *PluginPage) startHostInstall(choice pluginHostInstallOption) tea.Cmd
 	page.progress = &progress
 	page.overlay = pluginOverlayOperation
 	target := page.targetID
+	service, err := page.operationService()
+	if err != nil {
+		page.overlay, page.progress, page.operationCancel = pluginOverlayNone, nil, nil
+		cancel()
+		page.err = err
+		return nil
+	}
 	return func() tea.Msg {
 		msg := pluginOperationMsg{command: PluginInstall, target: target, notice: "Plugin installed"}
 		if choice.portable {
-			_, msg.err = page.service.InstallPortable(ctx, target)
+			_, msg.err = service.InstallPortable(ctx, target)
 			return msg
 		}
-		if _, msg.err = page.service.RunHostInstallHint(ctx, choice.hint); msg.err != nil {
+		if _, msg.err = service.RunHostInstallHint(ctx, choice.hint); msg.err != nil {
 			return msg
 		}
-		_, msg.err = page.service.Install(ctx, target)
+		_, msg.err = service.Install(ctx, target)
 		return msg
 	}
 }
@@ -1055,7 +1121,7 @@ func (page *PluginPage) syncPluginDetail() {
 		trust = "trusted"
 	}
 	content := detailFields(
-		[2]string{"ID", string(manifest.ID)}, [2]string{"Name", manifest.Name}, [2]string{"Version", string(manifest.Version)}, [2]string{"Type", string(manifest.Type)}, [2]string{"Origin", detail.Origin.Label()}, [2]string{"State", state},
+		[2]string{"ID", string(manifest.ID)}, [2]string{"Name", manifest.Name}, [2]string{"Version", string(manifest.Version)}, [2]string{"Type", string(manifest.Type)}, [2]string{"Origin", detail.Origin.Label()}, [2]string{"Scope", pluginDetailScope(detail)}, [2]string{"State", state},
 		[2]string{"Registry", detail.Registry.Name}, [2]string{"Publisher", detail.Publisher.Name}, [2]string{"Publisher trust", trust}, [2]string{"Signature", detail.SignatureStatus}, [2]string{"Source", detail.Publisher.Source}, [2]string{"Signing repository", detail.Publisher.Sigstore.Repository},
 		[2]string{"Capabilities", pluginCapabilities(manifest.Provides)}, [2]string{"Permissions", pluginPermissions(manifest.Permissions)}, [2]string{"Dependencies", pluginCapabilities(manifest.Dependencies.Capabilities)}, [2]string{"Core requirement", manifest.Requires.ChatGPTMCP}, [2]string{"Core compatibility", detail.CoreCompatibility}, [2]string{"Platforms", pluginPlatforms(manifest.Platforms)},
 	)
@@ -1071,7 +1137,7 @@ func (page *PluginPage) syncPluginDetail() {
 			bindings = append(bindings, component.DetailPageBinding{Key: "space", HelpKey: "space", Desc: "toggle", Message: PluginCommandMsg{Command: toggle, TargetID: string(manifest.ID)}})
 		}
 		if life.Configure {
-			bindings = append(bindings, component.DetailPageBinding{Key: "e", Desc: "configure", Message: NavigateMsg{Path: []string{"plugins", string(manifest.ID), "configure"}}})
+			bindings = append(bindings, component.DetailPageBinding{Key: "e", Desc: "configure", Message: NavigateMsg{Path: pluginRoutePath(page.workspaceID, string(manifest.ID), "configure")}})
 			bindings = append(bindings, component.DetailPageBinding{Key: "x", Desc: "reset config", Message: PluginCommandMsg{Command: PluginConfigReset, TargetID: string(manifest.ID)}})
 		}
 		if life.Update {
@@ -1091,7 +1157,9 @@ func (page *PluginPage) syncPluginDetail() {
 			bindings = append(bindings, component.DetailPageBinding{Key: "D", Desc: "force uninstall", Message: PluginCommandMsg{Command: PluginForceUninstall, TargetID: string(manifest.ID)}})
 		}
 	} else if life.Install {
-		bindings = append(bindings, component.DetailPageBinding{Key: "i", Desc: "install", Message: PluginCommandMsg{Command: PluginInstall, TargetID: detail.Reference}})
+		if life.Install && page.canInstall(detail.Reference) {
+			bindings = append(bindings, component.DetailPageBinding{Key: "i", Desc: "install", Message: PluginCommandMsg{Command: PluginInstall, TargetID: detail.Reference}})
+		}
 	}
 	page.detail.SetBindings(bindings...)
 }
@@ -1164,9 +1232,9 @@ func (page *PluginPage) submitEditor() tea.Cmd {
 func (page *PluginPage) editorParentNavigation() tea.Cmd {
 	if page.action == "configure" && page.resourceID != "" {
 		id := page.resourceID
-		return func() tea.Msg { return NavigateMsg{Path: []string{"plugins", id}} }
+		return func() tea.Msg { return NavigateMsg{Path: pluginRoutePath(page.workspaceID, id)} }
 	}
-	return func() tea.Msg { return NavigateMsg{Path: []string{"plugins", "registries"}} }
+	return func() tea.Msg { return NavigateMsg{Path: pluginRoutePath("", "registries")} }
 }
 
 func pluginID(value string) (pluginpkg.PluginID, error) {
@@ -1235,4 +1303,202 @@ func sortedStringKeys[T any](values map[string]T) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+func formatPluginScopes(scopes []pluginpkg.PluginScope) string {
+	parts := make([]string, 0, len(scopes))
+	for _, scope := range scopes {
+		parts = append(parts, string(scope))
+	}
+	if len(parts) == 0 {
+		return string(pluginpkg.ScopeGlobal)
+	}
+	return strings.Join(parts, ", ")
+}
+
+func pluginDetailScope(detail application.PluginDetail) string {
+	if detail.Scope == pluginpkg.ScopeWorkspace && detail.Workspace != "" {
+		return string(detail.Scope) + " " + detail.Workspace
+	}
+	if detail.Scope == "" {
+		return string(pluginpkg.ScopeGlobal)
+	}
+	return string(detail.Scope)
+}
+
+func (page *PluginPage) canInstall(reference string) bool {
+	item, ok := page.marketplace[reference]
+	if ok && item.Installed != nil {
+		return false
+	}
+	scopes := page.installScopes(reference)
+	if page.workspaceID != "" {
+		for _, scope := range scopes {
+			if scope == pluginpkg.ScopeWorkspace {
+				return true
+			}
+		}
+		return false
+	}
+	return len(scopes) > 0
+}
+
+func (page *PluginPage) installScopes(reference string) []pluginpkg.PluginScope {
+	if item, ok := page.marketplace[reference]; ok {
+		return item.Entry.AllowedScopes()
+	}
+	if page.detailValue.Reference == reference || string(page.detailValue.Manifest.ID) == reference {
+		return page.detailValue.Manifest.AllowedScopes()
+	}
+	return []pluginpkg.PluginScope{pluginpkg.ScopeGlobal}
+}
+
+func (page *PluginPage) operationService() (*application.PluginService, error) {
+	if page.installScope.Scope == "" && page.installScope.Workspace == "" {
+		return page.service, nil
+	}
+	return application.NewPluginServiceForOptions(page.installScope)
+}
+
+func (page *PluginPage) prepareInstall(target string) tea.Cmd {
+	if page.workspaceID != "" {
+		page.installScope = application.PluginScopeOptions{Scope: string(pluginpkg.ScopeWorkspace), Workspace: page.workspaceID}
+		return nil
+	}
+	choices := pluginInstallChoices(page.installScopes(target), availablePluginWorkspaces())
+	if len(choices) == 0 {
+		page.err = application.ErrPluginScopeRequired
+		return nil
+	}
+	if len(choices) == 1 && len(choices[0].path) == 0 {
+		page.installScope = choices[0].install
+		return nil
+	}
+	page.pickTitle = "Install scope"
+	page.pickOptions = choices
+	page.pickIndex = 0
+	page.pickInstall = target
+	page.overlay = pluginOverlayPick
+	return nil
+}
+
+func (page *PluginPage) openWorkspacePicker() tea.Cmd {
+	items := availablePluginWorkspaces()
+	if len(items) == 0 {
+		page.err = fmt.Errorf("no registered workspace; register one first")
+		return nil
+	}
+	if len(items) == 1 {
+		return navigatePluginSection(items[0].ID, page.section)
+	}
+	choices := make([]pluginPickOption, 0, len(items))
+	for _, item := range items {
+		choices = append(choices, pluginPickOption{label: "Workspace: " + filepath.Base(item.Path), path: pluginRoutePath(item.ID, pluginSectionParts(page.section)...)})
+	}
+	page.pickTitle = "Plugin workspace"
+	page.pickOptions = choices
+	page.pickIndex = 0
+	page.pickInstall = ""
+	page.overlay = pluginOverlayPick
+	return nil
+}
+
+func pluginSectionParts(section string) []string {
+	if section == "" {
+		return nil
+	}
+	return []string{section}
+}
+
+func pluginInstallChoices(allowed []pluginpkg.PluginScope, workspaces []workspace.Workspace) []pluginPickOption {
+	choices := make([]pluginPickOption, 0, 1+len(workspaces))
+	for _, scope := range allowed {
+		switch scope {
+		case pluginpkg.ScopeGlobal:
+			choices = append(choices, pluginPickOption{label: "Global", install: application.PluginScopeOptions{Scope: string(pluginpkg.ScopeGlobal)}})
+		case pluginpkg.ScopeWorkspace:
+			for _, item := range workspaces {
+				choices = append(choices, pluginPickOption{
+					label:   "Workspace: " + filepath.Base(item.Path),
+					install: application.PluginScopeOptions{Scope: string(pluginpkg.ScopeWorkspace), Workspace: item.ID},
+				})
+			}
+		}
+	}
+	return choices
+}
+
+func availablePluginWorkspaces() []workspace.Workspace {
+	items, err := workspace.NewManager(workspace.DefaultStorePath()).List()
+	if err != nil {
+		return nil
+	}
+	available := make([]workspace.Workspace, 0, len(items))
+	for _, item := range items {
+		if item.Available() {
+			available = append(available, item)
+		}
+	}
+	return available
+}
+
+func (page *PluginPage) pickBody() string {
+	var builder strings.Builder
+	title := page.pickTitle
+	if title == "" {
+		title = "Select scope"
+	}
+	builder.WriteString(component.ToneText(title, component.ToneAccent))
+	builder.WriteString("\n\n")
+	for index, option := range page.pickOptions {
+		line := "  " + option.label
+		if index == page.pickIndex {
+			line = component.ToneText("> "+option.label, component.ToneAccent)
+		}
+		builder.WriteString(line)
+		builder.WriteByte('\n')
+	}
+	builder.WriteString("\n")
+	builder.WriteString(component.Muted("↑/↓ select  Enter confirm  Esc cancel"))
+	return strings.TrimSpace(builder.String())
+}
+
+func (page *PluginPage) updatePick(msg tea.KeyPressMsg) tea.Cmd {
+	if len(page.pickOptions) == 0 {
+		page.closePick()
+		return nil
+	}
+	switch msg.String() {
+	case "esc":
+		page.closePick()
+		return nil
+	case "up", "k":
+		page.pickIndex = (page.pickIndex - 1 + len(page.pickOptions)) % len(page.pickOptions)
+		return nil
+	case "down", "j":
+		page.pickIndex = (page.pickIndex + 1) % len(page.pickOptions)
+		return nil
+	case "enter":
+		choice := page.pickOptions[page.pickIndex]
+		target := page.pickInstall
+		page.closePick()
+		if len(choice.path) > 0 {
+			return func() tea.Msg { return NavigateMsg{Path: choice.path} }
+		}
+		page.installScope = choice.install
+		if target != "" {
+			return page.startOperation(PluginInstall, target)
+		}
+		return nil
+	default:
+		return nil
+	}
+}
+
+func (page *PluginPage) closePick() {
+	page.overlay = pluginOverlayNone
+	page.pickTitle = ""
+	page.pickOptions = nil
+	page.pickIndex = 0
+	page.pickInstall = ""
 }

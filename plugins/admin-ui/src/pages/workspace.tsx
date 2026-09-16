@@ -10,7 +10,8 @@ import { WorkspaceExecutionDetail, WorkspaceExecutions } from "@/components/work
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { RequestsPage } from "@/pages/requests"
-import { adminApi, type Workspace } from "@/lib/api"
+import { adminApi, type PluginConfig, type Workspace } from "@/lib/api"
+import { PluginConfigCard } from "@/pages/settings"
 import { cn } from "@/lib/utils"
 
 type WorkspaceOutletContext = { workspace: Workspace }
@@ -41,11 +42,43 @@ export function WorkspaceOverviewPage() {
 export function WorkspaceContextPage() { const { workspace } = useWorkspaceContext(); return <WorkspaceContext workspaceID={workspace.id} /> }
 export function WorkspaceRequestsPage() { const { workspace } = useWorkspaceContext(); return <RequestsPage workspaceID={workspace.id} /> }
 export function WorkspaceActivityPage() { const { workspace } = useWorkspaceContext(); return <WorkspaceExecutions workspaceID={workspace.id} /> }
+export function WorkspacePluginsPage() {
+  const { workspace } = useWorkspaceContext()
+  const [pluginConfigs, setPluginConfigs] = useState<PluginConfig[]>([])
+  const [busy, setBusy] = useState(false)
+  const [message, setMessage] = useState("")
+  const [error, setError] = useState("")
+  useEffect(() => {
+    let active = true
+    void adminApi.plugins("workspace", workspace.id)
+      .then((plugins) => Promise.all(plugins.filter((item) => item.lifecycle.configure).map((item) => adminApi.pluginConfig(item.id, "workspace", workspace.id))))
+      .then((configs) => { if (active) { setPluginConfigs(configs); setError("") } })
+      .catch((value) => { if (active) setError(errorText(value)) })
+    return () => { active = false }
+  }, [workspace.id])
+  return (
+    <div className="space-y-6">
+      {error ? <PageError message={error} /> : null}
+      {message ? <div className="text-sm text-muted-foreground">{message}</div> : null}
+      {pluginConfigs.length === 0 ? <div className="rounded-xl border bg-card p-6 text-sm text-muted-foreground">No configurable workspace plugins are installed here.</div> : pluginConfigs.map((item) => (
+        <PluginConfigCard
+          key={item.id}
+          config={item}
+          busy={busy}
+          onChange={(next) => setPluginConfigs((current) => current.map((entry) => entry.id === next.id ? next : entry))}
+          onBusy={setBusy}
+          onMessage={setMessage}
+          onError={setError}
+        />
+      ))}
+    </div>
+  )
+}
 export function WorkspaceExecutionPage() { const { workspace } = useWorkspaceContext(); const { executionID = "" } = useParams<{ executionID: string }>(); return <WorkspaceExecutionDetail workspaceID={workspace.id} executionID={executionID} /> }
 
 function WorkspaceNav({ workspaceID }: { workspaceID: string }) {
   const base = `/workspaces/${encodeURIComponent(workspaceID)}`
-  return <ScrollArea className="w-full" scrollbars="horizontal"><div aria-label="Workspace sections" className="inline-flex h-8 w-max min-w-full items-center rounded-lg bg-muted p-[3px] text-muted-foreground" role="tablist"><WorkspaceNavLink end label="Overview" to={base} /><WorkspaceNavLink label="Context" to={`${base}/context`} /><WorkspaceNavLink label="Requests" to={`${base}/requests`} /><WorkspaceNavLink label="Activity" to={`${base}/activity`} /></div></ScrollArea>
+  return <ScrollArea className="w-full" scrollbars="horizontal"><div aria-label="Workspace sections" className="inline-flex h-8 w-max min-w-full items-center rounded-lg bg-muted p-[3px] text-muted-foreground" role="tablist"><WorkspaceNavLink end label="Overview" to={base} /><WorkspaceNavLink label="Context" to={`${base}/context`} /><WorkspaceNavLink label="Requests" to={`${base}/requests`} /><WorkspaceNavLink label="Activity" to={`${base}/activity`} /><WorkspaceNavLink label="Plugins" to={`${base}/plugins`} /></div></ScrollArea>
 }
 
 function WorkspaceNavLink({ to, label, end = false }: { to: string; label: string; end?: boolean }) {

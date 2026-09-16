@@ -43,6 +43,7 @@ import {
   type PluginConfig,
   type PluginSettingField,
   type PublicConfig,
+  type Workspace,
 } from "@/lib/api"
 
 export function SettingsPage() {
@@ -51,6 +52,9 @@ export function SettingsPage() {
   const [enabledTunnelCount, setEnabledTunnelCount] = useState(0)
   const [interfaces, setInterfaces] = useState<NetworkInterface[]>([])
   const [pluginConfigs, setPluginConfigs] = useState<PluginConfig[]>([])
+  const [pluginScope, setPluginScope] = useState<"global" | "workspace">("global")
+  const [pluginWorkspaceID, setPluginWorkspaceID] = useState("")
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState("")
   const [error, setError] = useState("")
@@ -61,22 +65,38 @@ export function SettingsPage() {
       adminApi.networkInterfaces(),
       adminApi.localTunnels(),
       adminApi.plugins(),
+      adminApi.workspaces(),
     ])
-      .then(async ([nextConfig, nextInterfaces, nextTunnels, plugins]) => {
+      .then(async ([nextConfig, nextInterfaces, nextTunnels, plugins, nextWorkspaces]) => {
         const normalized = normalizeConfig(nextConfig)
         setConfig(normalized)
         setSavedConfig(normalized)
         setInterfaces(nextInterfaces)
         setEnabledTunnelCount(nextTunnels.filter((item) => item.enabled).length)
-        const configurable = plugins.filter((item) => item.lifecycle.configure)
-        setPluginConfigs(
-          await Promise.all(
-            configurable.map((item) => adminApi.pluginConfig(item.id))
-          )
-        )
+        setWorkspaces(nextWorkspaces)
+        setPluginConfigs(await loadConfigurablePlugins("global"))
       })
       .catch((value) => setError(errorText(value)))
   }, [])
+
+  async function loadConfigurablePlugins(scope: "global" | "workspace", workspaceID = "") {
+    const plugins = await adminApi.plugins(scope === "workspace" ? "workspace" : "global", workspaceID || undefined)
+    const configurable = plugins.filter((item) => item.lifecycle.configure)
+    return Promise.all(
+      configurable.map((item) => adminApi.pluginConfig(item.id, scope, workspaceID || undefined))
+    )
+  }
+
+  async function selectPluginScope(scope: "global" | "workspace", workspaceID = "") {
+    setPluginScope(scope)
+    setPluginWorkspaceID(workspaceID)
+    try {
+      setPluginConfigs(await loadConfigurablePlugins(scope, workspaceID))
+      setError("")
+    } catch (value) {
+      setError(errorText(value))
+    }
+  }
 
   const dirty = useMemo(
     () =>
@@ -427,6 +447,30 @@ export function SettingsPage() {
           </Card>
         </TabsContent>
         <TabsContent className="mt-6 space-y-6" value="plugins">
+          <div className="flex flex-wrap items-center gap-3">
+            <Select
+              value={pluginScope === "workspace" ? pluginWorkspaceID || "workspace" : "global"}
+              onValueChange={(value) => {
+                if (value === "global") {
+                  void selectPluginScope("global")
+                  return
+                }
+                void selectPluginScope("workspace", value)
+              }}
+            >
+              <SelectTrigger className="w-72">
+                <SelectValue placeholder="Plugin scope" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="global">Global</SelectItem>
+                {workspaces.map((item) => (
+                  <SelectItem key={item.id} value={item.id}>
+                    Workspace: {item.path}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
           {pluginConfigs.length === 0 ? (
             <Card>
               <CardHeader>
@@ -558,7 +602,7 @@ export function SettingsPage() {
   )
 }
 
-function PluginConfigCard({
+export function PluginConfigCard({
   config,
   busy,
   onChange,
@@ -582,7 +626,7 @@ function PluginConfigCard({
         if (field.sensitive && (value === "" || value === undefined)) continue
         values[field.key] = value
       }
-      onChange(await adminApi.savePluginConfig(config.id, values))
+      onChange(await adminApi.savePluginConfig(config.id, values, config.scope, config.workspace_id))
       onMessage(`${config.name} configuration saved.`)
       onError("")
     } catch (value) {
@@ -595,7 +639,7 @@ function PluginConfigCard({
   async function reset() {
     onBusy(true)
     try {
-      onChange(await adminApi.resetPluginConfig(config.id))
+      onChange(await adminApi.resetPluginConfig(config.id, config.scope, config.workspace_id))
       onMessage(`${config.name} configuration reset to defaults.`)
       onError("")
     } catch (value) {

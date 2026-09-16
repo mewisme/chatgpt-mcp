@@ -74,3 +74,12 @@ func (builtin Builtin) AllowedScopes() []PluginScope {
 func (entry RegistryEntry) AllowedScopes() []PluginScope {
 	return clonePluginScopes(entry.Scopes)
 }
+
+func (entry RegistryEntry) AllowsScope(scope PluginScope) bool {
+	for _, allowed := range entry.AllowedScopes() {
+		if allowed == scope {
+			return true
+		}
+	}
+	return false
+}

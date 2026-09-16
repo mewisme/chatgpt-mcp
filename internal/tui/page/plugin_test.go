@@ -32,7 +32,7 @@ func TestPluginPageInstalledListDetailAndConfirmation(t *testing.T) {
 		t.Fatalf("installed page loaded=%t err=%v", page.loaded, page.err)
 	}
 	selected, ok := page.browser.Selected()
-	if !ok || selected.ID != "demo" || !strings.Contains(selected.Meta, "enabled") || !strings.Contains(selected.Meta, "1.0.0") {
+	if !ok || selected.ID != "demo" || !strings.Contains(selected.Meta, "enabled") || !strings.Contains(selected.Meta, "1.0.0") || !strings.Contains(selected.Meta, "global") {
 		t.Fatalf("installed row = %#v ok=%t", selected, ok)
 	}
 	if _, err := page.openCommand(PluginUninstall, "demo"); err != nil {
@@ -50,7 +50,7 @@ func TestPluginPageInstalledListDetailAndConfirmation(t *testing.T) {
 	detailMessage := detail.loadCmd()().(pluginLoadMsg)
 	detail.finishLoad(detailMessage)
 	view := ansi.Strip(detail.View(100, 28))
-	for _, want := range []string{"formatter/demo", "process/execute", "enabled", "official", "mewisme", "verified installed state", "github.com/mewisme/chatgpt-mcp", "mewisme/chatgpt-mcp", "Core compatibility", "space toggle", "u update", "? more"} {
+	for _, want := range []string{"formatter/demo", "process/execute", "enabled", "official", "mewisme", "verified installed state", "github.com/mewisme/chatgpt-mcp", "mewisme/chatgpt-mcp", "Core compatibility", "Scope", "global", "space toggle", "u update", "? more"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("plugin detail missing %q: %q", want, view)
 		}
@@ -109,6 +109,22 @@ func TestPluginPageBuiltinHidesArtifactActions(t *testing.T) {
 	navigate, ok := cmd().(NavigateMsg)
 	if !ok || strings.Join(navigate.Path, "/") != "plugins/ponytail/configure" {
 		t.Fatalf("builtin configure navigation=%#v", navigate)
+	}
+}
+
+func TestPluginInstallChoicesSkipWorkspaceWhenNoneRegistered(t *testing.T) {
+	choices := pluginInstallChoices([]pluginpkg.PluginScope{pluginpkg.ScopeGlobal, pluginpkg.ScopeWorkspace}, nil)
+	if len(choices) != 1 || choices[0].label != "Global" {
+		t.Fatalf("choices = %#v", choices)
+	}
+}
+
+func TestPluginRoutePathIncludesWorkspace(t *testing.T) {
+	if got := strings.Join(pluginRoutePath("ws_demo", "rtk", "configure"), "/"); got != "plugins/@ws_demo/rtk/configure" {
+		t.Fatalf("path = %q", got)
+	}
+	if got := strings.Join(pluginRoutePath("", "marketplace"), "/"); got != "plugins/marketplace" {
+		t.Fatalf("global path = %q", got)
 	}
 }
 

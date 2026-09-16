@@ -11,24 +11,28 @@ import (
 
 	"go.mewis.me/chatgpt-mcp/internal/application"
 	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
+	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
 
 type pluginListItem struct {
-	ID          string              `json:"id"`
-	Name        string              `json:"name"`
-	Origin      pluginpkg.Origin    `json:"origin"`
-	OriginLabel string              `json:"origin_label"`
-	Enabled     bool                `json:"enabled"`
-	Lifecycle   pluginpkg.Lifecycle `json:"lifecycle"`
+	ID          string                `json:"id"`
+	Name        string                `json:"name"`
+	Origin      pluginpkg.Origin      `json:"origin"`
+	OriginLabel string                `json:"origin_label"`
+	Enabled     bool                  `json:"enabled"`
+	Lifecycle   pluginpkg.Lifecycle   `json:"lifecycle"`
+	Scope       pluginpkg.PluginScope `json:"scope"`
+	WorkspaceID string                `json:"workspace_id,omitempty"`
 }
 
 type pluginConfigView struct {
-	ID     pluginpkg.PluginID       `json:"id"`
-	Name   string                   `json:"name"`
-	Origin pluginpkg.Origin         `json:"origin"`
-	Scope  string                   `json:"scope"`
-	Schema pluginpkg.SettingsSchema `json:"schema"`
-	Values map[string]any           `json:"values"`
+	ID          pluginpkg.PluginID       `json:"id"`
+	Name        string                   `json:"name"`
+	Origin      pluginpkg.Origin         `json:"origin"`
+	Scope       string                   `json:"scope"`
+	WorkspaceID string                   `json:"workspace_id,omitempty"`
+	Schema      pluginpkg.SettingsSchema `json:"schema"`
+	Values      map[string]any           `json:"values"`
 }
 
 type pluginConfigPatch struct {
@@ -44,9 +48,9 @@ func (api API) handlePlugins(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	service, err := api.pluginService()
+	service, err := api.pluginServiceFor(r)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		http.Error(w, err.Error(), pluginScopeStatus(err))
 		return
 	}
 	items, err := service.Installed()
@@ -59,6 +63,7 @@ func (api API) handlePlugins(w http.ResponseWriter, r *http.Request) {
 		out = append(out, pluginListItem{
 			ID: string(item.ID), Name: item.Installed.Manifest.Name, Origin: item.Origin,
 			OriginLabel: item.Origin.Label(), Enabled: item.Lock.Enabled, Lifecycle: item.Lifecycle,
+			Scope: item.Scope, WorkspaceID: item.Workspace,
 		})
 	}
 	writeJSON(w, out)
@@ -82,7 +87,7 @@ func (api API) handlePlugin(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method {
 	case http.MethodGet:
-		api.handlePluginConfigGet(w, id)
+		api.handlePluginConfigGet(w, r, id)
 	case http.MethodPut:
 		api.handlePluginConfigPut(w, r, id)
 	default:
@@ -90,8 +95,8 @@ func (api API) handlePlugin(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (api API) handlePluginConfigGet(w http.ResponseWriter, id pluginpkg.PluginID) {
-	view, status, err := api.pluginConfigView(id)
+func (api API) handlePluginConfigGet(w http.ResponseWriter, r *http.Request, id pluginpkg.PluginID) {
+	view, status, err := api.pluginConfigView(r, id)
 	if err != nil {
 		http.Error(w, err.Error(), status)
 		return
@@ -105,9 +110,9 @@ func (api API) handlePluginConfigPut(w http.ResponseWriter, r *http.Request, id 
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	service, err := api.pluginService()
+	service, err := api.pluginServiceFor(r)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		http.Error(w, err.Error(), pluginScopeStatus(err))
 		return
 	}
 	schema, err := service.Manager.SettingsSchema(id)
@@ -129,7 +134,7 @@ func (api API) handlePluginConfigPut(w http.ResponseWriter, r *http.Request, id 
 			return
 		}
 	}
-	view, status, err := api.pluginConfigView(id)
+	view, status, err := api.pluginConfigView(r, id)
 	if err != nil {
 		http.Error(w, err.Error(), status)
 		return
@@ -149,16 +154,16 @@ func (api API) handlePluginConfigReset(w http.ResponseWriter, r *http.Request, i
 			return
 		}
 	}
-	service, err := api.pluginService()
+	service, err := api.pluginServiceFor(r)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		http.Error(w, err.Error(), pluginScopeStatus(err))
 		return
 	}
 	if err := service.ResetPluginSetting(r.Context(), id, request.Key); err != nil {
 		http.Error(w, err.Error(), pluginConfigStatus(err))
 		return
 	}
-	view, status, err := api.pluginConfigView(id)
+	view, status, err := api.pluginConfigView(r, id)
 	if err != nil {
 		http.Error(w, err.Error(), status)
 		return
@@ -166,10 +171,10 @@ func (api API) handlePluginConfigReset(w http.ResponseWriter, r *http.Request, i
 	writeJSON(w, view)
 }
 
-func (api API) pluginConfigView(id pluginpkg.PluginID) (pluginConfigView, int, error) {
-	service, err := api.pluginService()
+func (api API) pluginConfigView(r *http.Request, id pluginpkg.PluginID) (pluginConfigView, int, error) {
+	service, err := api.pluginServiceFor(r)
 	if err != nil {
-		return pluginConfigView{}, http.StatusServiceUnavailable, err
+		return pluginConfigView{}, pluginScopeStatus(err), err
 	}
 	schema, values, err := service.PluginSettings(id)
 	if err != nil {
@@ -179,7 +184,7 @@ func (api API) pluginConfigView(id pluginpkg.PluginID) (pluginConfigView, int, e
 	if detail, err := service.InstalledDetail(id); err == nil {
 		name, origin = detail.Manifest.Name, detail.Origin
 	}
-	return pluginConfigView{ID: id, Name: name, Origin: origin, Scope: "global", Schema: schema, Values: values}, 0, nil
+	return pluginConfigView{ID: id, Name: name, Origin: origin, Scope: string(service.Layout.EffectiveScope()), WorkspaceID: service.Workspace, Schema: schema, Values: values}, 0, nil
 }
 
 func (api API) pluginService() (*application.PluginService, error) {
@@ -187,6 +192,57 @@ func (api API) pluginService() (*application.PluginService, error) {
 		return api.Plugins, nil
 	}
 	return application.NewPluginService()
+}
+
+func (api API) pluginServiceFor(r *http.Request) (*application.PluginService, error) {
+	opts, err := api.pluginScopeOptions(r)
+	if err != nil {
+		return nil, err
+	}
+	if opts.Scope == "" && opts.Workspace == "" {
+		return api.pluginService()
+	}
+	return application.NewPluginServiceForOptions(opts)
+}
+
+func (api API) pluginScopeOptions(r *http.Request) (application.PluginScopeOptions, error) {
+	if r == nil {
+		return application.PluginScopeOptions{}, nil
+	}
+	scope := strings.TrimSpace(r.URL.Query().Get("scope"))
+	workspaceID := strings.TrimSpace(r.URL.Query().Get("workspace_id"))
+	if strings.ContainsAny(workspaceID, `/\`) {
+		return application.PluginScopeOptions{}, fmt.Errorf("workspace_id must be a workspace id")
+	}
+	if scope == string(pluginpkg.ScopeWorkspace) && workspaceID == "" {
+		return application.PluginScopeOptions{}, fmt.Errorf("workspace scope requires workspace_id")
+	}
+	if workspaceID != "" && scope == "" {
+		scope = string(pluginpkg.ScopeWorkspace)
+	}
+	if workspaceID != "" {
+		manager := api.workspaceManager()
+		if manager == nil {
+			return application.PluginScopeOptions{}, fmt.Errorf("workspace registry unavailable")
+		}
+		if _, err := manager.Get(workspaceID); err != nil {
+			return application.PluginScopeOptions{}, err
+		}
+	}
+	return application.PluginScopeOptions{Scope: scope, Workspace: workspaceID}, nil
+}
+
+func pluginScopeStatus(err error) int {
+	switch {
+	case err == nil:
+		return http.StatusOK
+	case errors.Is(err, workspace.ErrNotFound), errors.Is(err, workspace.ErrUnavailable):
+		return http.StatusNotFound
+	case strings.Contains(err.Error(), "unavailable"):
+		return http.StatusServiceUnavailable
+	default:
+		return http.StatusBadRequest
+	}
 }
 
 func pluginConfigStatus(err error) int {

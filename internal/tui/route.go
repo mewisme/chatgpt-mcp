@@ -119,6 +119,13 @@ func ParseRoute(args []string) (Route, error) {
 
 func parsePluginRoute(parts []string) (Route, error) {
 	route := Route{Kind: RoutePlugins}
+	if len(parts) > 1 && strings.HasPrefix(parts[1], "@") {
+		route.Mode = strings.TrimPrefix(parts[1], "@")
+		if route.Mode == "" {
+			return Route{}, fmt.Errorf("plugin workspace id is required")
+		}
+		parts = append([]string{parts[0]}, parts[2:]...)
+	}
 	if len(parts) == 1 {
 		return route, nil
 	}
@@ -867,6 +874,10 @@ func pluginRouteStack(route Route) []Route {
 	root := Route{Kind: RoutePlugins}
 	stack := []Route{root}
 	parent := root
+	if route.Mode != "" {
+		parent.Mode = route.Mode
+		stack = append(stack, parent)
+	}
 	if route.Section != "" {
 		parent.Section = route.Section
 		stack = append(stack, parent)

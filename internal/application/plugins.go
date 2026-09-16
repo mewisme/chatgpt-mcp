@@ -13,8 +13,9 @@ import (
 )
 
 type PluginService struct {
-	Manager *pluginpkg.Manager
-	Layout  pluginpkg.Layout
+	Manager   *pluginpkg.Manager
+	Layout    pluginpkg.Layout
+	Workspace string
 }
 
 type InstalledPluginInfo struct {
@@ -23,6 +24,8 @@ type InstalledPluginInfo struct {
 	Lifecycle pluginpkg.Lifecycle
 	Lock      pluginpkg.LockPlugin
 	Installed pluginpkg.InstalledPlugin
+	Scope     pluginpkg.PluginScope
+	Workspace string
 }
 
 type MarketplacePluginInfo struct {
@@ -46,6 +49,8 @@ type PluginDetail struct {
 	Lifecycle         pluginpkg.Lifecycle
 	SignatureStatus   string
 	CoreCompatibility string
+	Scope             pluginpkg.PluginScope
+	Workspace         string
 }
 
 type PluginRegistryInfo struct {
@@ -55,6 +60,21 @@ type PluginRegistryInfo struct {
 
 func NewPluginService() (*PluginService, error) {
 	return NewPluginServiceForLayout(pluginpkg.DefaultLayout())
+}
+
+func NewPluginServiceForOptions(opts PluginScopeOptions) (*PluginService, error) {
+	if strings.TrimSpace(opts.Scope) == "" && strings.TrimSpace(opts.Workspace) == "" {
+		return NewPluginService()
+	}
+	layout, err := ResolvePluginLayout(opts)
+	if err != nil {
+		return nil, err
+	}
+	service, err := NewPluginServiceForLayout(layout)
+	if service != nil {
+		service.Workspace = strings.TrimSpace(opts.Workspace)
+	}
+	return service, err
 }
 
 func NewPluginServiceForLayout(layout pluginpkg.Layout) (*PluginService, error) {
@@ -83,7 +103,7 @@ func (service *PluginService) Installed() ([]InstalledPluginInfo, error) {
 		items = append(items, InstalledPluginInfo{
 			ID: entry.ID, Origin: entry.Origin, Lifecycle: entry.Lifecycle,
 			Lock:      pluginpkg.LockPlugin{Registry: entry.Registry, Publisher: entry.Publisher, Version: entry.Version, Enabled: entry.Enabled},
-			Installed: entry.Installed,
+			Installed: entry.Installed, Scope: service.Layout.EffectiveScope(), Workspace: service.Workspace,
 		})
 	}
 	return items, nil
@@ -155,12 +175,12 @@ func (service *PluginService) InstalledDetail(id pluginpkg.PluginID) (PluginDeta
 	}
 	if builtin, ok := service.Manager.LookupBuiltin(id); ok {
 		manifest := builtin.CatalogManifest(version.Version)
-		return PluginDetail{
+		return service.withScope(PluginDetail{
 			Reference: string(id), Manifest: manifest, Registry: pluginpkg.Registry{Name: pluginpkg.BuiltinRegistryName},
 			Publisher: pluginpkg.Publisher{Name: pluginpkg.BuiltinPublisher, Trusted: true, Source: "compiled into chatgpt-mcp"},
 			Installed: true, Enabled: builtin.DefaultEnabled, Origin: pluginpkg.OriginBuiltin, Lifecycle: builtin.Lifecycle(),
 			SignatureStatus: "built-in", CoreCompatibility: "compiled into chatgpt-mcp",
-		}, nil
+		}), nil
 	}
 	lock, err := pluginpkg.LoadLock(service.Layout.LockPath())
 	if err != nil {
@@ -203,7 +223,7 @@ func (service *PluginService) InstalledDetail(id pluginpkg.PluginID) (PluginDeta
 	if verifyErr := service.Manager.Verify(context.Background(), id); verifyErr != nil {
 		verification = "verification failed: " + verifyErr.Error()
 	}
-	return PluginDetail{Reference: entry.Registry + "/" + string(id), Manifest: installed.Manifest, Registry: registry, Publisher: publisher, Installed: true, Enabled: entry.Enabled, Origin: pluginpkg.OriginInstalled, Lifecycle: pluginpkg.ArtifactLifecycle(), SignatureStatus: verification, CoreCompatibility: pluginCoreCompatibility(installed.Manifest)}, nil
+	return service.withScope(PluginDetail{Reference: entry.Registry + "/" + string(id), Manifest: installed.Manifest, Registry: registry, Publisher: publisher, Installed: true, Enabled: entry.Enabled, Origin: pluginpkg.OriginInstalled, Lifecycle: pluginpkg.ArtifactLifecycle(), SignatureStatus: verification, CoreCompatibility: pluginCoreCompatibility(installed.Manifest)}), nil
 }
 
 func (service *PluginService) MarketplaceDetail(ctx context.Context, reference string) (PluginDetail, error) {
@@ -223,7 +243,7 @@ func (service *PluginService) MarketplaceDetail(ctx context.Context, reference s
 		return PluginDetail{}, err
 	}
 	entry, installed := lock.Plugins[resolved.PluginID]
-	return PluginDetail{Reference: resolved.Registry.Name + "/" + string(resolved.PluginID), Manifest: manifest, Registry: resolved.Registry, Publisher: resolved.Publisher, Installed: installed, Enabled: installed && entry.Enabled, Origin: pluginpkg.OriginInstalled, Lifecycle: pluginpkg.ArtifactLifecycle(), SignatureStatus: "verified signed manifest", CoreCompatibility: pluginCoreCompatibility(manifest)}, nil
+	return service.withScope(PluginDetail{Reference: resolved.Registry.Name + "/" + string(resolved.PluginID), Manifest: manifest, Registry: resolved.Registry, Publisher: resolved.Publisher, Installed: installed, Enabled: installed && entry.Enabled, Origin: pluginpkg.OriginInstalled, Lifecycle: pluginpkg.ArtifactLifecycle(), SignatureStatus: "verified signed manifest", CoreCompatibility: pluginCoreCompatibility(manifest)}), nil
 }
 
 func (service *PluginService) Install(ctx context.Context, reference string) (pluginpkg.InstallResult, error) {
@@ -317,6 +337,14 @@ func (service *PluginService) RemoveRegistry(ctx context.Context, name string) (
 	return pluginpkg.MutateConfig(service.Layout, func(config *pluginpkg.Config) error {
 		return config.RemoveRegistry(name)
 	})
+}
+
+func (service *PluginService) withScope(detail PluginDetail) PluginDetail {
+	if service != nil {
+		detail.Scope = service.Layout.EffectiveScope()
+		detail.Workspace = service.Workspace
+	}
+	return detail
 }
 
 func pluginCoreCompatibility(manifest pluginpkg.Manifest) string {

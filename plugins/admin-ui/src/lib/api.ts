@@ -294,6 +294,8 @@ export type PluginListItem = {
   origin_label: string
   enabled: boolean
   lifecycle: PluginLifecycle
+  scope?: "global" | "workspace" | string
+  workspace_id?: string
 }
 export type PluginSettingField = {
   key: string
@@ -310,6 +312,7 @@ export type PluginConfig = {
   name: string
   origin: "builtin" | "installed"
   scope: string
+  workspace_id?: string
   schema: { fields: PluginSettingField[] }
   values: Record<string, unknown>
 }
@@ -503,6 +506,14 @@ function withAdmin(path: string, admin: string) {
   return value ? `${path}?admin=${encodeURIComponent(value)}` : path
 }
 
+function pluginQuery(scope?: string, workspaceID?: string) {
+  const query = new URLSearchParams()
+  if (scope) query.set("scope", scope)
+  if (workspaceID) query.set("workspace_id", workspaceID)
+  const text = query.toString()
+  return text ? `?${text}` : ""
+}
+
 export const adminApi = {
   health: () => api<{ ok: boolean; auth_enabled: boolean }>("/api/health"),
   activityCall: (callID: string) =>
@@ -514,16 +525,17 @@ export const adminApi = {
       method: "PUT",
       body: JSON.stringify(config),
     }),
-  plugins: () => api<PluginListItem[]>("/api/plugins"),
-  pluginConfig: (id: string) =>
-    api<PluginConfig>(`/api/plugins/${encodeURIComponent(id)}/config`),
-  savePluginConfig: (id: string, values: Record<string, unknown>) =>
-    api<PluginConfig>(`/api/plugins/${encodeURIComponent(id)}/config`, {
+  plugins: (scope?: string, workspaceID?: string) =>
+    api<PluginListItem[]>(`/api/plugins${pluginQuery(scope, workspaceID)}`),
+  pluginConfig: (id: string, scope?: string, workspaceID?: string) =>
+    api<PluginConfig>(`/api/plugins/${encodeURIComponent(id)}/config${pluginQuery(scope, workspaceID)}`),
+  savePluginConfig: (id: string, values: Record<string, unknown>, scope?: string, workspaceID?: string) =>
+    api<PluginConfig>(`/api/plugins/${encodeURIComponent(id)}/config${pluginQuery(scope, workspaceID)}`, {
       method: "PUT",
       body: JSON.stringify({ values }),
     }),
-  resetPluginConfig: (id: string) =>
-    api<PluginConfig>(`/api/plugins/${encodeURIComponent(id)}/config/reset`, {
+  resetPluginConfig: (id: string, scope?: string, workspaceID?: string) =>
+    api<PluginConfig>(`/api/plugins/${encodeURIComponent(id)}/config/reset${pluginQuery(scope, workspaceID)}`, {
       method: "POST",
     }),
   workspaces: () => api<Workspace[]>("/api/workspaces"),

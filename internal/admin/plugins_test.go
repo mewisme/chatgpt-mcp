@@ -35,7 +35,7 @@ func TestPluginConfigAPIGetPutReset(t *testing.T) {
 	}
 	for _, id := range []string{"ponytail", "caveman"} {
 		item, ok := found[id]
-		if !ok || item.Origin != pluginpkg.OriginBuiltin || !item.Lifecycle.Configure || item.Lifecycle.Install {
+		if !ok || item.Origin != pluginpkg.OriginBuiltin || !item.Lifecycle.Configure || item.Lifecycle.Install || item.Scope != pluginpkg.ScopeGlobal {
 			t.Fatalf("%s list item=%#v ok=%t", id, item, ok)
 		}
 	}
@@ -90,5 +90,20 @@ func TestPluginConfigAPIGetPutReset(t *testing.T) {
 	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/plugins/missing/config", nil))
 	if recorder.Code != http.StatusNotFound {
 		t.Fatalf("missing status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestPluginAPIRejectsWorkspaceScopeWithoutID(t *testing.T) {
+	t.Setenv(configformat.EnvConfigDir, t.TempDir())
+	handler := New(API{})
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/plugins?scope=workspace", nil))
+	if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), "workspace_id") {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/plugins?workspace_id=/tmp/not-an-id", nil))
+	if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), "workspace id") {
+		t.Fatalf("path status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 }

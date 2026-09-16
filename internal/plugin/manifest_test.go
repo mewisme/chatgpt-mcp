@@ -147,6 +147,52 @@ func TestManifestCoreCompatibility(t *testing.T) {
 	}
 }
 
+func TestManifestSchema1IsGlobalOnly(t *testing.T) {
+	manifest := testManifest("bash", "1.0.0", "shell/bash")
+	if err := manifest.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if got := manifest.AllowedScopes(); len(got) != 1 || got[0] != ScopeGlobal {
+		t.Fatalf("schema 1 scopes = %#v", got)
+	}
+	if !manifest.AllowsScope(ScopeGlobal) || manifest.AllowsScope(ScopeWorkspace) {
+		t.Fatalf("schema 1 allows workspace: %#v", manifest.AllowedScopes())
+	}
+	manifest.Scopes = []PluginScope{ScopeGlobal}
+	if err := manifest.Validate(); err == nil {
+		t.Fatal("schema 1 accepted explicit scopes")
+	}
+}
+
+func TestManifestSchema2RequiresValidScopes(t *testing.T) {
+	valid := testManifest("bash", "1.0.0", "shell/bash")
+	valid.Schema = ManifestSchemaV2
+	valid.Scopes = []PluginScope{ScopeGlobal, ScopeWorkspace}
+	if err := valid.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if !valid.AllowsScope(ScopeWorkspace) {
+		t.Fatal("schema 2 workspace scope rejected")
+	}
+	tests := []struct {
+		name   string
+		scopes []PluginScope
+	}{
+		{"empty", nil},
+		{"unknown", []PluginScope{"cluster"}},
+		{"duplicate", []PluginScope{ScopeGlobal, ScopeGlobal}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			manifest := valid
+			manifest.Scopes = test.scopes
+			if err := manifest.Validate(); err == nil {
+				t.Fatalf("accepted scopes %#v", test.scopes)
+			}
+		})
+	}
+}
+
 func TestParseManifestRejectsUnknownFields(t *testing.T) {
 	data := `{"schema":1,"id":"bash","name":"Bash","publisher":"mewisme","version":"1.0.0","type":"runtime","provides":["shell/bash"],"permissions":[],"platforms":{"linux/amd64":{"artifact":"bash.tar.gz","sha256":"` + strings.Repeat("a", 64) + `","archive":"tar.gz","entrypoint":"bin/bash"}},"surprise":true}`
 	if _, err := ParseManifest([]byte(data)); err == nil {

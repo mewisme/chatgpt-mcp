@@ -49,6 +49,7 @@ type Builtin struct {
 	Provides       []Capability
 	Permissions    []Permission
 	Schema         SettingsSchema
+	Scopes         []PluginScope
 	Disableable    bool
 	DefaultEnabled bool
 	Description    string
@@ -64,7 +65,7 @@ func (builtin Builtin) Validate() error {
 	if _, ok := knownPluginTypes[builtin.Type]; !ok {
 		return fmt.Errorf("unsupported built-in plugin type: %q", builtin.Type)
 	}
-	return nil
+	return validatePluginScopes(builtin.AllowedScopes())
 }
 
 func (builtin Builtin) Origin() Origin { return OriginBuiltin }
@@ -128,6 +129,7 @@ type CatalogPlugin struct {
 	Publisher string
 	Installed InstalledPlugin
 	Schema    SettingsSchema
+	Scopes    []PluginScope
 }
 
 func (manager Manager) LookupBuiltin(id PluginID) (Builtin, bool) {
@@ -198,6 +200,7 @@ func (manager Manager) Catalog() ([]CatalogPlugin, error) {
 		items = append(items, CatalogPlugin{
 			ID: id, Origin: OriginInstalled, Lifecycle: ArtifactLifecycle(), Enabled: entry.Enabled,
 			Version: entry.Version, Registry: entry.Registry, Publisher: entry.Publisher, Installed: installed,
+			Scopes: installed.Manifest.AllowedScopes(),
 		})
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
@@ -222,6 +225,6 @@ func builtinCatalogPlugin(builtin Builtin, coreVersion string) CatalogPlugin {
 	return CatalogPlugin{
 		ID: builtin.ID, Origin: OriginBuiltin, Lifecycle: builtin.Lifecycle(), Enabled: builtin.DefaultEnabled,
 		Version: manifest.Version, Registry: BuiltinRegistryName, Publisher: BuiltinPublisher,
-		Installed: InstalledPlugin{Manifest: manifest}, Schema: builtin.Schema,
+		Installed: InstalledPlugin{Manifest: manifest}, Schema: builtin.Schema, Scopes: builtin.AllowedScopes(),
 	}
 }

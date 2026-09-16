@@ -18,6 +18,7 @@ import (
 )
 
 const ManifestSchema = 1
+const ManifestSchemaV2 = 2
 
 type PluginID string
 type Version string
@@ -49,6 +50,7 @@ type Manifest struct {
 	Permissions  []Permission                `json:"permissions"`
 	Dependencies Dependencies                `json:"dependencies,omitempty"`
 	Platforms    map[string]PlatformArtifact `json:"platforms"`
+	Scopes       []PluginScope               `json:"scopes,omitempty"`
 }
 
 type Requirements struct {
@@ -146,7 +148,16 @@ func ParseManifest(data []byte) (Manifest, error) {
 }
 
 func (manifest Manifest) Validate() error {
-	if manifest.Schema != ManifestSchema {
+	switch manifest.Schema {
+	case ManifestSchema:
+		if len(manifest.Scopes) > 0 {
+			return fmt.Errorf("plugin scopes require manifest schema %d", ManifestSchemaV2)
+		}
+	case ManifestSchemaV2:
+		if err := validatePluginScopes(manifest.Scopes); err != nil {
+			return err
+		}
+	default:
 		return fmt.Errorf("unsupported plugin manifest schema: %d", manifest.Schema)
 	}
 	if !validCanonicalName(string(manifest.ID)) {

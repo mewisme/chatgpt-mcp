@@ -41,6 +41,17 @@ func TestCatalogMergesBuiltinsAndInstalled(t *testing.T) {
 	if items[1].Origin != OriginBuiltin || items[1].Lifecycle.Install || items[1].Lifecycle.Uninstall || items[1].Lifecycle.Update || items[1].Lifecycle.Rollback || items[1].Lifecycle.Prune || items[1].Origin.Label() != "Built-in" {
 		t.Fatalf("builtin entry = %#v", items[1])
 	}
+	if len(items[0].Scopes) != 1 || items[0].Scopes[0] != ScopeGlobal || len(items[1].Scopes) != 1 || items[1].Scopes[0] != ScopeGlobal {
+		t.Fatalf("catalog scopes = %#v %#v", items[0].Scopes, items[1].Scopes)
+	}
+}
+
+func TestBuiltinUnknownScopeRejected(t *testing.T) {
+	builtin := testBuiltin("demo", "tool/demo")
+	builtin.Scopes = []PluginScope{"cluster"}
+	if err := (BuiltinRegistry{builtin}).Validate(); err == nil {
+		t.Fatal("unknown built-in scope accepted")
+	}
 }
 
 func TestCatalogPrefersBuiltinOverLockCollision(t *testing.T) {

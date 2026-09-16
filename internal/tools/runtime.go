@@ -13,6 +13,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/controlguard"
 	"go.mewis.me/chatgpt-mcp/internal/idgen"
 	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
+	"go.mewis.me/chatgpt-mcp/internal/plugindev"
 	shellruntime "go.mewis.me/chatgpt-mcp/internal/shell"
 	"go.mewis.me/chatgpt-mcp/internal/upstream"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
@@ -60,7 +61,11 @@ func NewRuntimeWithAccess(globalAllowDirs []string, environments ...ProjectConte
 		panic(err)
 	}
 	executions := shellruntime.NewExecutionHub()
-	pluginStore, err := pluginpkg.NewStore(pluginpkg.DefaultLayout(), pluginpkg.RuntimeContext{})
+	layout, err := plugindev.Prepare()
+	if err != nil {
+		panic(err)
+	}
+	pluginStore, err := pluginpkg.NewStore(layout, pluginpkg.RuntimeContext{})
 	if err != nil {
 		panic(err)
 	}

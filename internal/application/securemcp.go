@@ -9,7 +9,7 @@ import (
 
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/mcp"
-	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
+	"go.mewis.me/chatgpt-mcp/internal/plugindev"
 	"go.mewis.me/chatgpt-mcp/internal/runtimeplugin"
 	"go.mewis.me/chatgpt-mcp/internal/tools"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
@@ -180,7 +180,7 @@ func ensureSecureMCPSession(ctx context.Context, host *runtimeplugin.Host) (*run
 	}
 	return host.Ensure(ctx, runtimeplugin.Spec{
 		ID: string(ref.PluginID), Version: string(ref.Version), Entrypoint: ref.Path, WorkDir: ref.WorkDir,
-		DataDir: pluginpkg.DefaultLayout().PluginRuntimeDataDir(ref.PluginID),
+		DataDir: plugindev.RuntimeLayout().PluginRuntimeDataDir(ref.PluginID),
 	})
 }
 

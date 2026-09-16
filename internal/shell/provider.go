@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
+	"go.mewis.me/chatgpt-mcp/internal/plugindev"
 )
 
 const bashCapability pluginpkg.Capability = "shell/bash"
@@ -47,7 +48,11 @@ func NewProviderResolver(store *pluginpkg.Store) *ProviderResolver {
 }
 
 func DefaultProviderResolver() *ProviderResolver {
-	store, _ := pluginpkg.NewStore(pluginpkg.DefaultLayout(), pluginpkg.RuntimeContext{})
+	layout, err := plugindev.Prepare()
+	if err != nil {
+		return NewProviderResolver(nil)
+	}
+	store, _ := pluginpkg.NewStore(layout, pluginpkg.RuntimeContext{})
 	return NewProviderResolver(store)
 }
 

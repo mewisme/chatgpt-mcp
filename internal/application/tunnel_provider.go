@@ -11,6 +11,7 @@ import (
 
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
+	"go.mewis.me/chatgpt-mcp/internal/plugindev"
 	"go.mewis.me/chatgpt-mcp/internal/runtimecontrol"
 	"go.mewis.me/chatgpt-mcp/internal/runtimeplugin"
 	"go.mewis.me/chatgpt-mcp/internal/tunnelprovider"
@@ -175,7 +176,7 @@ func DescribeTunnelProvider(ctx context.Context, host *runtimeplugin.Host, ref T
 	}
 	session, err := host.Ensure(ctx, runtimeplugin.Spec{
 		ID: string(ref.PluginID), Version: string(ref.Version), Entrypoint: ref.Path, WorkDir: ref.WorkDir,
-		DataDir: pluginpkg.DefaultLayout().PluginRuntimeDataDir(ref.PluginID),
+		DataDir: plugindev.RuntimeLayout().PluginRuntimeDataDir(ref.PluginID),
 	})
 	if err != nil {
 		return runtimeplugin.DescribeResult{}, err

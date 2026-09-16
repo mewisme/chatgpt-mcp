@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
+	"go.mewis.me/chatgpt-mcp/internal/plugindev"
 	"go.mewis.me/chatgpt-mcp/internal/pluginhost"
 	"go.mewis.me/chatgpt-mcp/internal/version"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
@@ -29,7 +30,7 @@ func ResolvePluginLayoutWith(opts PluginScopeOptions, workspaces *workspace.Mana
 		return pluginpkg.Layout{}, err
 	}
 	if scope != pluginpkg.ScopeWorkspace {
-		return pluginpkg.DefaultLayout(), nil
+		return plugindev.Prepare()
 	}
 	item, err := resolvePluginWorkspace(workspaces, strings.TrimSpace(opts.Workspace))
 	if err != nil {
@@ -63,7 +64,11 @@ func AttachPluginPeers(store *pluginpkg.Store) error {
 	}
 	runtime := pluginpkg.RuntimeContext{CoreVersion: version.Version}
 	if store.Layout().EffectiveScope() == pluginpkg.ScopeWorkspace {
-		global, err := pluginpkg.NewStore(pluginpkg.DefaultLayout(), runtime)
+		layout, err := plugindev.Prepare()
+		if err != nil {
+			return err
+		}
+		global, err := pluginpkg.NewStore(layout, runtime)
 		if err != nil {
 			return err
 		}

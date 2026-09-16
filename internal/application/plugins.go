@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
+	"go.mewis.me/chatgpt-mcp/internal/plugindev"
 	"go.mewis.me/chatgpt-mcp/internal/pluginhost"
 	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 	"go.mewis.me/chatgpt-mcp/internal/version"
@@ -60,7 +61,11 @@ type PluginRegistryInfo struct {
 }
 
 func NewPluginService() (*PluginService, error) {
-	return NewPluginServiceForLayout(pluginpkg.DefaultLayout())
+	layout, err := plugindev.Prepare()
+	if err != nil {
+		return nil, err
+	}
+	return NewPluginServiceForLayout(layout)
 }
 
 func NewPluginServiceForOptions(opts PluginScopeOptions) (*PluginService, error) {

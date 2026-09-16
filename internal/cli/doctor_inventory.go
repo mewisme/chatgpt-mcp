@@ -15,8 +15,6 @@ var doctorAppCoverage = map[string]doctorCoverage{
 	"Upstream":      {Checks: []string{"upstream.store", "upstream.health"}},
 	"Tools":         {Parent: "tools.registry", Note: "tools.Runtime fields have their own inventory"},
 	"Activity":      {Parent: "observability.events"},
-	"Tunnels":       {Checks: []string{"tunnel.collection", "plugin.secure-mcp-tunnel"}},
-	"Tunnel":        {Parent: "tunnel.collection", Note: "legacy singleton adapter"},
 	"Bridge":        {Parent: "plugin.secure-mcp-tunnel", Note: "private plugin MCP bridge"},
 	"Logger":        {Checks: []string{"observability.events"}},
 	"Notifications": {Checks: []string{"notification.provider"}},

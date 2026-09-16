@@ -13,6 +13,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/logger"
 	"go.mewis.me/chatgpt-mcp/internal/notification"
 	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
+	"go.mewis.me/chatgpt-mcp/internal/plugindev"
 	"go.mewis.me/chatgpt-mcp/internal/redact"
 	shellruntime "go.mewis.me/chatgpt-mcp/internal/shell"
 	"go.mewis.me/chatgpt-mcp/internal/state"
@@ -120,7 +121,7 @@ func (d *doctorState) checkConfigSource(ctx context.Context) doctorResult {
 }
 
 func (d *doctorState) checkPluginLock(ctx context.Context) doctorResult {
-	store, err := pluginpkg.NewStore(pluginpkg.DefaultLayout(), pluginpkg.RuntimeContext{})
+	store, err := pluginpkg.NewStore(plugindev.InspectLayout(), pluginpkg.RuntimeContext{})
 	if err != nil {
 		return doctorResult{Status: doctorFail, Summary: "plugin store unavailable", Error: redact.Text(err.Error())}
 	}
@@ -145,7 +146,7 @@ func (d *doctorState) checkPluginDesired(ctx context.Context) doctorResult {
 	if d.store == nil {
 		return doctorResult{Status: doctorSkip, Summary: "plugin store unavailable"}
 	}
-	manager := &pluginpkg.Manager{Store: d.store, RegistryClient: pluginpkg.RegistryClient{Layout: pluginpkg.DefaultLayout(), UserAgent: "chatgpt-mcp/" + version.Version}}
+	manager := &pluginpkg.Manager{Store: d.store, RegistryClient: pluginpkg.RegistryClient{Layout: plugindev.InspectLayout(), UserAgent: "chatgpt-mcp/" + version.Version}}
 	desired, err := manager.AssessDesired()
 	if err != nil {
 		return doctorResult{Status: doctorFail, Summary: "plugin desired state unavailable", Error: redact.Text(err.Error())}
@@ -191,7 +192,7 @@ func (d *doctorState) checkPluginRegistry(ctx context.Context) doctorResult {
 	if d.store == nil {
 		return doctorResult{Status: doctorSkip, Summary: "plugin store unavailable"}
 	}
-	manager := &pluginpkg.Manager{Store: d.store, RegistryClient: pluginpkg.RegistryClient{Layout: pluginpkg.DefaultLayout(), UserAgent: "chatgpt-mcp/" + version.Version}}
+	manager := &pluginpkg.Manager{Store: d.store, RegistryClient: pluginpkg.RegistryClient{Layout: plugindev.InspectLayout(), UserAgent: "chatgpt-mcp/" + version.Version}}
 	health, err := manager.RegistryHealth(ctx)
 	if err != nil {
 		return doctorResult{Status: doctorWarn, Summary: "plugin registry diagnostics unavailable", Error: redact.Text(err.Error())}

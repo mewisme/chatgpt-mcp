@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"go.mewis.me/chatgpt-mcp/internal/plugin"
+	"go.mewis.me/chatgpt-mcp/internal/plugindev"
 	"go.mewis.me/chatgpt-mcp/internal/state"
 )
 
@@ -191,7 +192,7 @@ func normalizeIdentity(scope, mode, name string) (string, string, string, error)
 func resolveLayout(scope, workspaceRoot string) (plugin.Layout, error) {
 	switch scope {
 	case ScopeGlobal:
-		layout := plugin.DefaultLayout()
+		layout := plugindev.RuntimeLayout()
 		return layout, layout.Validate()
 	case ScopeWorkspace:
 		return plugin.WorkspaceLayout(workspaceRoot)

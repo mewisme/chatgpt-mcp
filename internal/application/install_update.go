@@ -12,6 +12,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/install"
 	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
+	"go.mewis.me/chatgpt-mcp/internal/plugindev"
 	"go.mewis.me/chatgpt-mcp/internal/runtimecontrol"
 	managed "go.mewis.me/chatgpt-mcp/internal/service"
 	updatepkg "go.mewis.me/chatgpt-mcp/internal/update"
@@ -300,7 +301,7 @@ func formatCorePluginNotice(report pluginpkg.CoreReconcileReport) string {
 }
 
 func targetPluginCompatibilityNotice(target string) string {
-	layout := pluginpkg.DefaultLayout()
+	layout := plugindev.RuntimeLayout()
 	store, err := pluginpkg.NewStore(layout, pluginpkg.RuntimeContext{CoreVersion: version.Version})
 	if err != nil {
 		return "Plugin compatibility preflight unavailable: " + err.Error()

@@ -15,6 +15,7 @@ import (
 
 	"go.mewis.me/chatgpt-mcp/internal/application"
 	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
+	"go.mewis.me/chatgpt-mcp/internal/plugindev"
 	"go.mewis.me/chatgpt-mcp/internal/pluginhost"
 	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
 	"go.mewis.me/chatgpt-mcp/internal/version"
@@ -28,7 +29,11 @@ func pluginCommand() *cobra.Command {
 }
 
 func newPluginManager() (*pluginpkg.Manager, pluginpkg.Layout, error) {
-	return newPluginManagerFor(pluginpkg.DefaultLayout())
+	layout, err := plugindev.Prepare()
+	if err != nil {
+		return nil, pluginpkg.Layout{}, err
+	}
+	return newPluginManagerFor(layout)
 }
 
 func newPluginManagerFromCmd(cmd *cobra.Command) (*pluginpkg.Manager, pluginpkg.Layout, error) {

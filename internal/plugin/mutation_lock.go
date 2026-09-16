@@ -1,39 +1,26 @@
 package plugin
 
 import (
-	"os"
-	"path/filepath"
+	"go.mewis.me/chatgpt-mcp/internal/oslock"
 )
 
 type mutationFileLock struct {
-	file *os.File
+	lock *oslock.Lock
 }
 
 func acquireMutationFileLock(path string) (*mutationFileLock, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
-		return nil, err
-	}
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600)
+	lock, err := oslock.Acquire(path, oslock.Exclusive)
 	if err != nil {
 		return nil, err
 	}
-	if err := lockMutationFile(file); err != nil {
-		_ = file.Close()
-		return nil, err
-	}
-	return &mutationFileLock{file: file}, nil
+	return &mutationFileLock{lock: lock}, nil
 }
 
 func (lock *mutationFileLock) release() error {
-	if lock == nil || lock.file == nil {
+	if lock == nil || lock.lock == nil {
 		return nil
 	}
-	unlockErr := unlockMutationFile(lock.file)
-	closeErr := lock.file.Close()
-	if unlockErr != nil {
-		return unlockErr
-	}
-	return closeErr
+	return lock.lock.Release()
 }
 
 func (store *Store) lockMutation() (func(), error) {

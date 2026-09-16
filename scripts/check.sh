@@ -25,10 +25,7 @@ echo "==> go vet"
 go vet ./...
 
 echo "==> staticcheck"
-if ! command -v staticcheck >/dev/null 2>&1; then
-  go install honnef.co/go/tools/cmd/staticcheck@v0.8.1
-fi
-staticcheck ./...
+./scripts/staticcheck.sh
 
 echo "==> go mod tidy -diff"
 go mod tidy -diff

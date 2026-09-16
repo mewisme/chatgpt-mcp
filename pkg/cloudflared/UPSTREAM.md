@@ -103,4 +103,23 @@ Rewrite imports into `go.mewis.me/chatgpt-mcp/pkg/cloudflared/...`:
 
 Keep only HTTP origin pieces from `ingress`. Drop `ingress/middleware` (JWT/Access) and ICMP/hello-world origin types during copy. Do not copy `*_test.go` until the stripped package still compiles.
 
-Next: Phase 2 copies those packages and rewrites `RunQuickTunnel` out of `cmd/cloudflared`.
+## Extracted (2026-09-16)
+
+Copied from `/tmp/cloudflared-src` at commit `f11dea9cb7079e90a982c1a2d5548ab40847fdcf` (~23k LOC, tests excluded):
+
+- keep packages above, plus compile deps: `config` (types only), `ingress` (+ `origins`), `carrier` (bastion dest helper only), `cfio`, `client`, `crypto`, `datagramsession`, `features`, `fips`, `flow`, `tracing`, `websocket`, `socks`
+- rewritten `github.com/cloudflare/cloudflared` → `go.mewis.me/chatgpt-mcp/pkg/cloudflared`
+- no `cmd/cloudflared`, no `github.com/cloudflare/cloudflared/...` imports, no `urfave/cli`, no Sentry
+
+Local stubs/patches:
+
+- `flags`: `MaxActiveFlows` constant only
+- `management`: log event constants + `ManagementService` HTTP stub (no websocket/chi management server)
+- `hello`: no-op listener (hello-world origin is not a product path)
+- `ingress/middleware/jwtvalidator.go`: Access JWT always forbidden; no oidc
+- `config/configuration.go`: structs/`CustomDuration` only (no config-file discovery)
+- stripped CLI ingress parsers and Sentry calls from `supervisor`/`stream`
+
+`RunQuickTunnel` is rewritten as `parseProvisionResponse` in `provision.go`. `Start(ctx, Config)` is the library entry (Phase 3).
+
+quic-go replace (same as upstream): `github.com/chungthuang/quic-go v0.45.1-0.20260529212404-a9fddf436fc4`

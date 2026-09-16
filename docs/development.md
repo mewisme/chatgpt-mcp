@@ -119,9 +119,12 @@ go test . -run 'TestCoreDepsExcludeCFTunnel|TestCoreAndPluginBinarySizes'
 Official native plugins build independently, for example:
 
 ```bash
-go build -trimpath -o ponytail ./plugins/ponytail/cmd/ponytail
-go build -trimpath -o tui ./plugins/tui/cmd/tui
+go run ./plugins/ponytail/build -output dist/plugins -platform linux/amd64
 ```
+
+Linux and Windows native plugin binaries are compressed with `upx --best` and verified with `upx -t` before they are zipped. macOS binaries are left unpacked. Official plugin CI installs UPX v5.2.0 and must not set `CGM_PLUGIN_UPX`. Local iteration may skip compression with `CGM_PLUGIN_UPX=off`; a missing `upx` without that opt-out fails the build. Static `admin-ui`, host-backed `rtk`, and vendor `bash` payloads are not compressed.
+
+A new CGM-owned native plugin inherits this path by adding `plugins/<id>/build` that calls `pluginbuild.Build` with the plugin's template and `./plugins/<id>/cmd/<id>` package. Do not copy UPX shell into the workflow; do not add plugin-ID branches to the helper. An intentional no-UPX native exception needs a reviewed builder that does not call `pluginbuild.Build`, plus a test update.
 
 ## Config isolation is a test invariant
 

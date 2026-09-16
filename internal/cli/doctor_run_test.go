@@ -1,0 +1,91 @@
+package cli
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestRunDoctorChecksContinuesAfterFailure(t *testing.T) {
+	report := runDoctorChecks(context.Background(), []doctorCheck{
+		{ID: "a", Section: "One", Run: func(context.Context) doctorResult {
+			return doctorResult{Status: doctorFail, Summary: "broken"}
+		}},
+		{ID: "b", Section: "Two", Run: func(context.Context) doctorResult {
+			return doctorResult{Status: doctorPass, Summary: "ok"}
+		}},
+	})
+	if report.Fail != 1 || report.Pass != 1 || len(report.Results) != 2 {
+		t.Fatalf("report = %#v", report)
+	}
+	if report.Results[1].ID != "b" || report.Results[1].Status != doctorPass {
+		t.Fatalf("later check dropped: %#v", report.Results)
+	}
+}
+
+func TestRunDoctorChecksSkipsFailedPrerequisite(t *testing.T) {
+	report := runDoctorChecks(context.Background(), []doctorCheck{
+		{ID: "a", Section: "One", Run: func(context.Context) doctorResult {
+			return doctorResult{Status: doctorFail, Summary: "broken"}
+		}},
+		{ID: "b", Section: "One", Requires: []string{"a"}, Run: func(context.Context) doctorResult {
+			t.Fatal("dependent check ran")
+			return doctorResult{}
+		}},
+	})
+	if report.Skip != 1 || report.Results[1].Status != doctorSkip || !strings.Contains(report.Results[1].Summary, "prerequisite a") {
+		t.Fatalf("report = %#v", report)
+	}
+}
+
+func TestRunDoctorChecksWarningDoesNotFail(t *testing.T) {
+	report := runDoctorChecks(context.Background(), []doctorCheck{
+		{ID: "a", Section: "One", Run: func(context.Context) doctorResult {
+			return doctorResult{Status: doctorWarn, Summary: "degraded"}
+		}},
+	})
+	if report.Fail != 0 || report.Warn != 1 {
+		t.Fatalf("report = %#v", report)
+	}
+}
+
+func TestRunDoctorChecksTimeout(t *testing.T) {
+	report := runDoctorChecks(context.Background(), []doctorCheck{
+		{ID: "slow", Section: "One", Timeout: 10 * time.Millisecond, Run: func(ctx context.Context) doctorResult {
+			<-ctx.Done()
+			return doctorResult{Status: doctorWarn, Summary: "timed out", Error: ctx.Err().Error()}
+		}},
+	})
+	if report.Warn != 1 || report.Results[0].Error == "" {
+		t.Fatalf("report = %#v", report)
+	}
+}
+
+func TestRenderDoctorReportSummary(t *testing.T) {
+	var out bytes.Buffer
+	err := renderDoctorReport(&out, doctorReport{
+		Results: []doctorResult{
+			{ID: "config.source", Section: "System", Status: doctorPass, Summary: "configuration loaded"},
+			{ID: "plugin.lock", Section: "Plugins", Status: doctorFail, Summary: "broken", Error: "nope"},
+		},
+		Pass: 1, Fail: 1,
+	}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := out.String()
+	for _, expected := range []string{"System", "Plugins", "PASS", "FAIL", "config.source", "Summary: 1 passed, 0 warnings, 1 failed, 0 skipped", "nope"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("output %q missing %q", text, expected)
+		}
+	}
+}
+
+func TestErrDoctorFailed(t *testing.T) {
+	if !errors.Is(errDoctorFailed, errDoctorFailed) {
+		t.Fatal("sentinel")
+	}
+}

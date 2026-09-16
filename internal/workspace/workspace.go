@@ -89,6 +89,9 @@ type Manager struct {
 	globalAllowDirs []string
 	shellPath       []string
 	runtime         *runtimeState
+	onRegistered    func(Workspace) error
+	onUnregistered  func(string)
+	onRelocated     func(Workspace) error
 }
 
 func DefaultStorePath() string {
@@ -110,6 +113,35 @@ func (m *Manager) SetTraceObserver(observer tracepkg.Observer) *Manager {
 		m.trace = observer
 	}
 	return m
+}
+
+func (m *Manager) SetStateHooks(registered func(Workspace) error, unregistered func(string), relocated func(Workspace) error) *Manager {
+	if m != nil {
+		m.onRegistered = registered
+		m.onUnregistered = unregistered
+		m.onRelocated = relocated
+	}
+	return m
+}
+
+func (m *Manager) notifyRegistered(item Workspace) error {
+	if m == nil || m.onRegistered == nil {
+		return nil
+	}
+	return m.onRegistered(item)
+}
+
+func (m *Manager) notifyUnregistered(id string) {
+	if m != nil && m.onUnregistered != nil {
+		m.onUnregistered(id)
+	}
+}
+
+func (m *Manager) notifyRelocated(item Workspace) error {
+	if m == nil || m.onRelocated == nil {
+		return nil
+	}
+	return m.onRelocated(item)
 }
 
 func NewManagerWithGlobalAllowDirs(path string, allowDirs []string) *Manager {
@@ -335,6 +367,7 @@ func (m *Manager) Register(path string) (result Workspace, resultErr error) {
 			return Workspace{}, err
 		}
 		span.EndMessage("Workspace registered", tracepkg.String("workspace_id", activeItem.ID), tracepkg.String("canonical_path", root), tracepkg.Bool("existing", true), tracepkg.Bool("protected", false), tracepkg.Int("allow_dirs", len(activeItem.AllowDirs)))
+		_ = m.notifyRegistered(activeItem)
 		return activeItem, nil
 	}
 	identity, created, err := local.EnsureIdentity("")
@@ -456,6 +489,7 @@ func (m *Manager) Register(path string) (result Workspace, resultErr error) {
 		return Workspace{}, err
 	}
 	span.EndMessage("Workspace registered", tracepkg.String("workspace_id", item.ID), tracepkg.String("canonical_path", root), tracepkg.Bool("existing", existed), tracepkg.Bool("protected", false), tracepkg.Int("allow_dirs", len(item.AllowDirs)))
+	_ = m.notifyRegistered(item)
 	return item, nil
 }
 

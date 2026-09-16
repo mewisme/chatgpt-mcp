@@ -72,6 +72,7 @@ func (m *Manager) Unregister(id string) (resultErr error) {
 		}
 	}
 	span.EndMessage("Workspace unregistered", tracepkg.String("canonical_workspace_id", canonical), tracepkg.String("root", item.Path), tracepkg.Int("containers_updated", len(previousContainers)), tracepkg.Int("aliases_removed", len(removedAliases)), tracepkg.Bool("project_files_removed", false), tracepkg.Bool("local_state_removed", false))
+	m.notifyUnregistered(canonical)
 	return nil
 }
 

@@ -26,22 +26,23 @@ const (
 var errTunnelResponseBudgetExceeded = errors.New("tunnel response budget exhausted")
 
 type Runtime struct {
-	Registry        *Registry
-	Workspaces      *workspace.Manager
-	Checkpoints     *checkpoint.Store
-	Upstream        *upstream.Manager
-	CallObserver    CallObserver
-	SessionAccess   *SessionWorkspaceAccessManager
-	Approvals       *approval.Manager
-	Executions      *shellruntime.ExecutionHub
-	Hooks           *pluginpkg.HookDispatcher
-	PluginStore     *pluginpkg.Store
-	Shell           *shellruntime.Manager
-	Processes       *shellruntime.ProcessManager
-	LoopGuard       *ToolLoopGuard
-	PluginReconcile pluginpkg.ReconcileReport
-	sessionMu       sync.Mutex
-	pluginSessions  []PluginSession
+	Registry         *Registry
+	Workspaces       *workspace.Manager
+	Checkpoints      *checkpoint.Store
+	Upstream         *upstream.Manager
+	CallObserver     CallObserver
+	SessionAccess    *SessionWorkspaceAccessManager
+	Approvals        *approval.Manager
+	Executions       *shellruntime.ExecutionHub
+	Hooks            *pluginpkg.HookDispatcher
+	PluginStore      *pluginpkg.Store
+	Shell            *shellruntime.Manager
+	Processes        *shellruntime.ProcessManager
+	LoopGuard        *ToolLoopGuard
+	PluginReconcile  pluginpkg.ReconcileReport
+	WorkspacePlugins *pluginpkg.WorkspaceStores
+	sessionMu        sync.Mutex
+	pluginSessions   []PluginSession
 }
 
 func NewRuntime() *Runtime {
@@ -67,9 +68,12 @@ func NewRuntimeWithAccess(globalAllowDirs []string, environments ...ProjectConte
 	if err != nil {
 		panic(err)
 	}
+	workspacePlugins := pluginpkg.NewWorkspaceStores(pluginpkg.RuntimeContext{})
+	attachWorkspacePluginStores(workspaces, workspacePlugins)
+	loadWorkspacePluginStores(workspaces, workspacePlugins)
 	shell := shellruntime.NewManagerWithProviderResolver(workspaces, shellruntime.DefaultStateRoot(), executions, shellruntime.NewProviderResolver(pluginStore))
 	processes := shellruntime.NewProcessManagerWithExecutions(workspaces, shell, executions)
-	runtime := &Runtime{Registry: registry, Workspaces: workspaces, Checkpoints: checkpoints, Upstream: upstreams, SessionAccess: NewSessionWorkspaceAccessManager(), Approvals: approval.NewManager(identity.ID), Executions: executions, Hooks: pluginpkg.NewHookDispatcher(pluginStore), PluginStore: pluginStore, Shell: shell, Processes: processes, LoopGuard: NewToolLoopGuard(), PluginReconcile: pluginReconcile}
+	runtime := &Runtime{Registry: registry, Workspaces: workspaces, Checkpoints: checkpoints, Upstream: upstreams, SessionAccess: NewSessionWorkspaceAccessManager(), Approvals: approval.NewManager(identity.ID), Executions: executions, Hooks: pluginpkg.NewHookDispatcher(pluginStore), PluginStore: pluginStore, Shell: shell, Processes: processes, LoopGuard: NewToolLoopGuard(), PluginReconcile: pluginReconcile, WorkspacePlugins: workspacePlugins}
 	RegisterWorkspaceTools(registry, workspaces, shell)
 	RegisterWorkspaceListTool(registry, runtime)
 	RegisterWorkspaceContainerTools(registry, workspaces)
@@ -105,6 +109,46 @@ func (r *Runtime) SyncPlugins() error {
 		return nil
 	}
 	return SyncCompiledPlugins(r)
+}
+
+func attachWorkspacePluginStores(workspaces *workspace.Manager, stores *pluginpkg.WorkspaceStores) {
+	if workspaces == nil || stores == nil {
+		return
+	}
+	workspaces.SetStateHooks(
+		func(item workspace.Workspace) error {
+			if !item.Available() {
+				return nil
+			}
+			_, _, err := stores.Load(item.ID, item.Path)
+			return err
+		},
+		stores.Unload,
+		func(item workspace.Workspace) error {
+			stores.Unload(item.ID)
+			if !item.Available() {
+				return nil
+			}
+			_, _, err := stores.Load(item.ID, item.Path)
+			return err
+		},
+	)
+}
+
+func loadWorkspacePluginStores(workspaces *workspace.Manager, stores *pluginpkg.WorkspaceStores) {
+	if workspaces == nil || stores == nil {
+		return
+	}
+	items, err := workspaces.List()
+	if err != nil {
+		return
+	}
+	for _, item := range items {
+		if !item.Available() {
+			continue
+		}
+		_, _, _ = stores.Load(item.ID, item.Path)
+	}
 }
 
 func (r *Runtime) SetGlobalAllowDirs(allowDirs []string) {

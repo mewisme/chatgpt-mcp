@@ -182,6 +182,7 @@ func (m *Manager) Relocate(id, path string) (Workspace, error) {
 		}
 	}
 	span.EndMessage("Workspace relocated", tracepkg.String("workspace_id", oldID), tracepkg.String("previous_root", oldRoot), tracepkg.String("root", root), tracepkg.Bool("identity_preserved", true))
+	_ = m.notifyRelocated(item)
 	return item, nil
 }
 

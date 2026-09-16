@@ -86,6 +86,18 @@ func collectTUIInventory() []tuiInventoryAction {
 	return out
 }
 
+func TestCLIOnlyBulkPluginOptionsStayOffTUIActions(t *testing.T) {
+	forbidden := []string{"--all", "--retain", "--cache", "--strict"}
+	for _, item := range defaultActionRegistry().All() {
+		path := strings.Join(item.CommandPath, " ")
+		for _, flag := range forbidden {
+			if strings.Contains(path, flag) {
+				t.Errorf("TUI action %s embeds CLI-only flag %s in CommandPath %q", item.ID, flag, path)
+			}
+		}
+	}
+}
+
 func tuiActionKind(item action.Action) string {
 	if strings.Contains(item.ID, ".external") || strings.HasSuffix(item.ID, ".foreground") {
 		return "external-command"

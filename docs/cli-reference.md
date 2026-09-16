@@ -271,6 +271,22 @@ Network/update-server unavailability is normally a warning. Secrets, hashes, bea
 
 See [Troubleshooting](troubleshooting.md).
 
+## Intentional single-surface commands
+
+These are not parity bugs:
+
+| Surface | Commands / options | Why |
+| --- | --- | --- |
+| CLI-only | `doctor`, `completion` | whole-app diagnostics and shell integration |
+| CLI-only | `config verify --strict` | extra-strict schema gate for scripts |
+| CLI-only | `plugin update --all`, `plugin prune --retain N`, `plugin prune --cache`, explicit `plugin rollback <id> <version>` | bulk/retention operators; TUI updates or rolls back one plugin |
+| TUI shows the command | `serve`, `mcp stdio`, `mcp http`, `tunnel run`, `init`, `uninit` | they own the terminal |
+| TUI/Admin UI | Instruction editors and workspace Project Context preview | no CLI `instruction` namespace |
+| CLI/TUI | per-workspace access directories | stronger than Admin UI |
+| CLI/TUI | `workspace relocate` | Admin UI has not mounted relocate yet |
+
+`plugin config` is global-only on the CLI. TUI and Admin can edit workspace plugin settings.
+
 ## Control approval requests
 
 When an MCP tool hits an approvable control guard, the agent can create a short-lived human request with the `request_control_approval` MCP tool. Local operators inspect and resolve those requests through the running runtime:

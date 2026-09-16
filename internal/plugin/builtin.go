@@ -146,10 +146,14 @@ func (manager Manager) SettingsSchema(id PluginID) (SettingsSchema, error) {
 		}
 		return builtin.Schema, nil
 	}
-	if _, err := manager.CatalogPlugin(id); err != nil {
+	item, err := manager.CatalogPlugin(id)
+	if err != nil {
 		return SettingsSchema{}, err
 	}
-	return SettingsSchema{}, fmt.Errorf("%w: %s", ErrNoPluginConfig, id)
+	if len(item.Schema.Fields) == 0 {
+		return SettingsSchema{}, fmt.Errorf("%w: %s", ErrNoPluginConfig, id)
+	}
+	return item.Schema, nil
 }
 
 func (manager Manager) SettingsStore() SettingsStore {
@@ -200,7 +204,7 @@ func (manager Manager) Catalog() ([]CatalogPlugin, error) {
 		items = append(items, CatalogPlugin{
 			ID: id, Origin: OriginInstalled, Lifecycle: ArtifactLifecycle(), Enabled: entry.Enabled,
 			Version: entry.Version, Registry: entry.Registry, Publisher: entry.Publisher, Installed: installed,
-			Scopes: installed.Manifest.AllowedScopes(),
+			Schema: installed.Manifest.Config, Scopes: installed.Manifest.AllowedScopes(),
 		})
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })

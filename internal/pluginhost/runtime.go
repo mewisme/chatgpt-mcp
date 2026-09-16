@@ -3,8 +3,11 @@ package pluginhost
 import (
 	"context"
 
+	"go.mewis.me/chatgpt-mcp/internal/runtimeplugin"
 	cftunnelplugin "go.mewis.me/chatgpt-mcp/plugins/cf-tunnel"
 )
+
+var RuntimeHost = runtimeplugin.NewHost()
 
 func SyncRuntime(ctx context.Context, snap cftunnelplugin.Snapshot) {
 	cftunnelplugin.Sync(ctx, snap)

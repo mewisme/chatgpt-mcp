@@ -51,6 +51,7 @@ type Manifest struct {
 	Dependencies Dependencies                `json:"dependencies,omitempty"`
 	Platforms    map[string]PlatformArtifact `json:"platforms"`
 	Scopes       []PluginScope               `json:"scopes,omitempty"`
+	Config       SettingsSchema              `json:"config,omitempty"`
 }
 
 type Requirements struct {
@@ -202,6 +203,11 @@ func (manifest Manifest) Validate() error {
 	}
 	if err := validateWrapperPermissions(manifest.Provides, seenPermissions); err != nil {
 		return err
+	}
+	if len(manifest.Config.Fields) > 0 {
+		if err := manifest.Config.Validate(); err != nil {
+			return err
+		}
 	}
 	webUICapabilities := 0
 	for _, capability := range manifest.Provides {

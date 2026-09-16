@@ -2,12 +2,12 @@ package application
 
 import (
 	"context"
-	"strings"
 
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
 	"go.mewis.me/chatgpt-mcp/internal/redact"
 	"go.mewis.me/chatgpt-mcp/internal/runtimecontrol"
+	"go.mewis.me/chatgpt-mcp/internal/tunnelprovider"
 	cftunnelplugin "go.mewis.me/chatgpt-mcp/plugins/cf-tunnel"
 )
 
@@ -60,101 +60,17 @@ func snapshotTarget(target string, desired bool, endpoint cftunnelplugin.Endpoin
 }
 
 func MCPExposureError(cfg config.Config) error {
-	if !cfg.Server.Enabled {
-		return cftunnelplugin.ErrMCPHTTPDisabled
-	}
-	if !cfg.Auth.MCPEnabled {
-		return cftunnelplugin.ErrMCPAuthDisabled
-	}
-	if strings.TrimSpace(cfg.Auth.MCPTokenHash) == "" {
-		return cftunnelplugin.ErrMCPTokenMissing
-	}
-	return nil
+	return tunnelprovider.MCPExposureError(cfg)
 }
 
 func AdminExposureError(cfg config.Config) error {
-	if !cfg.Admin.Enabled {
-		return cftunnelplugin.ErrAdminHTTPDisabled
-	}
-	if !cfg.Auth.AdminEnabled {
-		return cftunnelplugin.ErrAdminAuthDisabled
-	}
-	if strings.TrimSpace(cfg.Auth.AdminTokenHash) == "" {
-		return cftunnelplugin.ErrAdminTokenMissing
-	}
-	return nil
+	return tunnelprovider.AdminExposureError(cfg)
 }
 
 func StartCFTunnel(ctx context.Context, cfg config.Config, target string) error {
-	wantMCP, wantAdmin, err := cfTunnelTargets(target)
-	if err != nil {
-		return err
-	}
-	if wantMCP && wantAdmin {
-		if err := MCPExposureError(cfg); err != nil {
-			return err
-		}
-		if err := AdminExposureError(cfg); err != nil {
-			return err
-		}
-	} else if wantMCP {
-		if err := MCPExposureError(cfg); err != nil {
-			return err
-		}
-	} else if err := AdminExposureError(cfg); err != nil {
-		return err
-	}
-	service, err := NewPluginService()
-	if err != nil {
-		return err
-	}
-	if err := service.SetEnabled(ctx, cftunnelplugin.Plugin().ID, true); err != nil {
-		return err
-	}
-	if wantMCP {
-		if err := service.SetPluginSetting(ctx, cftunnelplugin.Plugin().ID, cftunnelplugin.TargetMCP, "true"); err != nil {
-			return err
-		}
-	}
-	if wantAdmin {
-		if err := service.SetPluginSetting(ctx, cftunnelplugin.Plugin().ID, cftunnelplugin.TargetAdmin, "true"); err != nil {
-			return err
-		}
-	}
-	return nil
+	return StartTunnelProvider(ctx, cfg, "cf", target)
 }
 
 func StopCFTunnel(ctx context.Context, target string) error {
-	wantMCP, wantAdmin, err := cfTunnelTargets(target)
-	if err != nil {
-		return err
-	}
-	service, err := NewPluginService()
-	if err != nil {
-		return err
-	}
-	if wantMCP && wantAdmin {
-		if err := service.SetEnabled(ctx, cftunnelplugin.Plugin().ID, false); err != nil {
-			return err
-		}
-	}
-	if wantMCP {
-		if err := service.SetPluginSetting(ctx, cftunnelplugin.Plugin().ID, cftunnelplugin.TargetMCP, "false"); err != nil {
-			return err
-		}
-	}
-	if wantAdmin {
-		if err := service.SetPluginSetting(ctx, cftunnelplugin.Plugin().ID, cftunnelplugin.TargetAdmin, "false"); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func cfTunnelTargets(target string) (wantMCP, wantAdmin bool, err error) {
-	parsed, err := cftunnelplugin.ParseTarget(target)
-	if err != nil {
-		return false, false, err
-	}
-	return parsed == cftunnelplugin.TargetMCP || parsed == "all", parsed == cftunnelplugin.TargetAdmin || parsed == "all", nil
+	return StopTunnelProvider(ctx, "cf", target)
 }

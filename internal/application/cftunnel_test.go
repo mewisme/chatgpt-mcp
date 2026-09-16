@@ -7,6 +7,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
 	"go.mewis.me/chatgpt-mcp/internal/testutil"
+	"go.mewis.me/chatgpt-mcp/internal/tunnelprovider"
 	cftunnelplugin "go.mewis.me/chatgpt-mcp/plugins/cf-tunnel"
 )
 
@@ -49,15 +50,15 @@ func TestCFTunnelSnapshotReadsEnableAndTarget(t *testing.T) {
 
 func TestMCPExposureErrorRequiresAuth(t *testing.T) {
 	cfg := config.Default()
-	if err := MCPExposureError(cfg); err != cftunnelplugin.ErrMCPTokenMissing {
+	if err := MCPExposureError(cfg); err != tunnelprovider.ErrMCPTokenMissing {
 		t.Fatalf("error = %v", err)
 	}
 	cfg.Auth.MCPEnabled = false
-	if err := MCPExposureError(cfg); err != cftunnelplugin.ErrMCPAuthDisabled {
+	if err := MCPExposureError(cfg); err != tunnelprovider.ErrMCPAuthDisabled {
 		t.Fatalf("error = %v", err)
 	}
 	cfg.Server.Enabled = false
-	if err := MCPExposureError(cfg); err != cftunnelplugin.ErrMCPHTTPDisabled {
+	if err := MCPExposureError(cfg); err != tunnelprovider.ErrMCPHTTPDisabled {
 		t.Fatalf("error = %v", err)
 	}
 }
@@ -65,7 +66,7 @@ func TestMCPExposureErrorRequiresAuth(t *testing.T) {
 func TestStartCFTunnelAllFailsBeforePersist(t *testing.T) {
 	testutil.UseConfigRoot(t, t.TempDir())
 	cfg := config.Default()
-	if err := StartCFTunnel(context.Background(), cfg, "all"); err != cftunnelplugin.ErrMCPTokenMissing {
+	if err := StartCFTunnel(context.Background(), cfg, "all"); err != tunnelprovider.ErrMCPTokenMissing {
 		t.Fatalf("error = %v", err)
 	}
 	if CFTunnelSnapshot(cfg).PluginEnabled {
@@ -95,6 +96,7 @@ func TestStartCFTunnelMCPPersistsDesired(t *testing.T) {
 }
 
 func TestStartCFTunnelRejectsUnknownTarget(t *testing.T) {
+	testutil.UseConfigRoot(t, t.TempDir())
 	if err := StartCFTunnel(context.Background(), config.Default(), "ssh"); err == nil {
 		t.Fatal("unknown target accepted")
 	}

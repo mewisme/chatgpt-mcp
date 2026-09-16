@@ -16,8 +16,8 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/redact"
 	"go.mewis.me/chatgpt-mcp/internal/runtimecontrol"
 	managed "go.mewis.me/chatgpt-mcp/internal/service"
+	"go.mewis.me/chatgpt-mcp/internal/tunnelprovider"
 	"go.mewis.me/chatgpt-mcp/internal/version"
-	cftunnelplugin "go.mewis.me/chatgpt-mcp/plugins/cf-tunnel"
 )
 
 func (d *doctorState) checkInstall(ctx context.Context) doctorResult {
@@ -156,9 +156,9 @@ func (d *doctorState) checkAuthMCP(ctx context.Context) doctorResult {
 	switch {
 	case err == nil:
 		return doctorResult{Status: doctorPass, Summary: "Direct MCP HTTP authentication is configured"}
-	case errors.Is(err, cftunnelplugin.ErrMCPHTTPDisabled):
+	case errors.Is(err, tunnelprovider.ErrMCPHTTPDisabled):
 		return doctorResult{Status: doctorSkip, Summary: "MCP HTTP is disabled"}
-	case d.cfg.Server.AllowUnauthenticatedLoopback && (errors.Is(err, cftunnelplugin.ErrMCPAuthDisabled) || errors.Is(err, cftunnelplugin.ErrMCPTokenMissing)):
+	case d.cfg.Server.AllowUnauthenticatedLoopback && (errors.Is(err, tunnelprovider.ErrMCPAuthDisabled) || errors.Is(err, tunnelprovider.ErrMCPTokenMissing)):
 		return doctorResult{Status: doctorWarn, Summary: "Direct MCP HTTP authentication is disabled on loopback"}
 	default:
 		return doctorResult{Status: doctorFail, Summary: "Direct MCP HTTP authentication is not ready", Error: redact.Text(err.Error())}
@@ -170,9 +170,9 @@ func (d *doctorState) checkAuthAdmin(ctx context.Context) doctorResult {
 	switch {
 	case err == nil:
 		return doctorResult{Status: doctorPass, Summary: "Admin authentication is configured"}
-	case errors.Is(err, cftunnelplugin.ErrAdminHTTPDisabled):
+	case errors.Is(err, tunnelprovider.ErrAdminHTTPDisabled):
 		return doctorResult{Status: doctorSkip, Summary: "Admin HTTP is disabled"}
-	case d.cfg.Server.AllowUnauthenticatedLoopback && (errors.Is(err, cftunnelplugin.ErrAdminAuthDisabled) || errors.Is(err, cftunnelplugin.ErrAdminTokenMissing)):
+	case d.cfg.Server.AllowUnauthenticatedLoopback && (errors.Is(err, tunnelprovider.ErrAdminAuthDisabled) || errors.Is(err, tunnelprovider.ErrAdminTokenMissing)):
 		return doctorResult{Status: doctorWarn, Summary: "Admin authentication is disabled on loopback"}
 	default:
 		return doctorResult{Status: doctorFail, Summary: "Admin authentication is not ready", Error: redact.Text(err.Error())}

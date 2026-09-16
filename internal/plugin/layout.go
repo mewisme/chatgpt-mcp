@@ -132,6 +132,10 @@ func (layout Layout) InstalledVersionPath(id PluginID, version Version) string {
 	return filepath.Join(layout.PluginsPath(), string(id), string(version))
 }
 
+func (layout Layout) PluginRuntimeDataDir(id PluginID) string {
+	return filepath.Join(layout.DataRoot, "runtime", string(id))
+}
+
 func (layout Layout) PluginConfigPath(id PluginID) string {
 	if layout.EffectiveScope() == ScopeWorkspace {
 		return filepath.Join(layout.ConfigRoot, "config", string(id)+".json")

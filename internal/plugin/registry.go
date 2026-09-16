@@ -29,6 +29,7 @@ type RegistryEntry struct {
 	Description string             `json:"description"`
 	Type        PluginType         `json:"type"`
 	Scopes      []PluginScope      `json:"scopes,omitempty"`
+	Provides    []Capability       `json:"provides,omitempty"`
 	Stable      Version            `json:"stable,omitempty"`
 	Beta        Version            `json:"beta,omitempty"`
 	Versions    map[Version]string `json:"versions"`
@@ -110,6 +111,11 @@ func (index RegistryIndex) Validate() error {
 		}
 		if _, ok := knownPluginTypes[entry.Type]; !ok {
 			return fmt.Errorf("registry plugin %s has unknown type %q", idValue, entry.Type)
+		}
+		if len(entry.Provides) > 0 {
+			if err := validateCapabilities(entry.Provides, "registry"); err != nil {
+				return fmt.Errorf("registry plugin %s: %w", idValue, err)
+			}
 		}
 		if len(entry.Scopes) > 0 {
 			if err := validatePluginScopes(entry.Scopes); err != nil {

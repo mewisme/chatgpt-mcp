@@ -31,8 +31,11 @@ func TestBuiltinsIncludePonytailAndCaveman(t *testing.T) {
 	if len(cfTunnel.Permissions) != 1 || cfTunnel.Permissions[0] != pluginpkg.PermissionNetworkOutbound {
 		t.Fatalf("cf-tunnel permissions = %#v", cfTunnel.Permissions)
 	}
-	if !cfTunnel.Lifecycle().Enable || !cfTunnel.Lifecycle().Disable || cfTunnel.Lifecycle().Configure {
+	if !cfTunnel.Lifecycle().Enable || !cfTunnel.Lifecycle().Disable || !cfTunnel.Lifecycle().Configure {
 		t.Fatalf("cf-tunnel lifecycle = %#v", cfTunnel.Lifecycle())
+	}
+	if len(cfTunnel.Schema.Fields) != 2 {
+		t.Fatalf("cf-tunnel schema = %#v", cfTunnel.Schema)
 	}
 	ponytail, _ := registry.Lookup("ponytail")
 	if ponytail.Lifecycle().Install || ponytail.Lifecycle().Uninstall || !ponytail.Lifecycle().Configure {

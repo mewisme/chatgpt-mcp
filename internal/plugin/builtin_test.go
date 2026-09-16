@@ -3,6 +3,7 @@ package plugin
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -130,5 +131,55 @@ func TestResolverIncludesBuiltinProvidersAndConflicts(t *testing.T) {
 	}
 	if provider.PluginID != "bash" {
 		t.Fatalf("provider = %q", provider.PluginID)
+	}
+}
+
+func TestDisableableBuiltinEnablePersists(t *testing.T) {
+	store := testStore(t)
+	store.Builtins = BuiltinRegistry{{ID: "cf-tunnel", Name: "CF Tunnel", Type: "runtime", Disableable: true, DefaultEnabled: false, Description: "test"}}
+	if store.BuiltinEnabled("cf-tunnel") {
+		t.Fatal("disabled-by-default builtin started enabled")
+	}
+	if err := store.SetEnabled("cf-tunnel", true); err != nil {
+		t.Fatal(err)
+	}
+	if !store.BuiltinEnabled("cf-tunnel") {
+		t.Fatal("enabled builtin not persisted")
+	}
+	items, err := (Manager{Store: store}).Catalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || !items[0].Enabled {
+		t.Fatalf("catalog = %#v", items)
+	}
+	if err := store.SetEnabled("cf-tunnel", false); err != nil {
+		t.Fatal(err)
+	}
+	if store.BuiltinEnabled("cf-tunnel") {
+		t.Fatal("disable did not restore default")
+	}
+	config, err := store.Layout().LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := config.Builtins["cf-tunnel"]; ok {
+		t.Fatalf("default overlay left behind: %#v", config.Builtins)
+	}
+}
+
+func TestNonDisableableBuiltinEnableRejected(t *testing.T) {
+	store := testStore(t)
+	store.Builtins = BuiltinRegistry{testBuiltin("ponytail", "tool/ponytail")}
+	if err := store.SetEnabled("ponytail", false); err == nil || !errors.Is(err, ErrBuiltinPlugin) {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestDisableableBuiltinRejectedOnWorkspaceStore(t *testing.T) {
+	store := testWorkspaceStore(t)
+	store.Builtins = BuiltinRegistry{{ID: "cf-tunnel", Name: "CF Tunnel", Type: "runtime", Disableable: true, Description: "test"}}
+	if err := store.SetEnabled("cf-tunnel", true); err == nil || !strings.Contains(err.Error(), "global-only") {
+		t.Fatalf("error = %v", err)
 	}
 }

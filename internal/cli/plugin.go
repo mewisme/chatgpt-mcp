@@ -395,12 +395,6 @@ func pluginToggleCommand(enabled bool) *cobra.Command {
 		if err != nil {
 			return err
 		}
-		if builtin, ok := manager.LookupBuiltin(id); ok {
-			if !builtin.Disableable {
-				return fmt.Errorf("%w: %s cannot be disabled", pluginpkg.ErrBuiltinPlugin, id)
-			}
-			return fmt.Errorf("%w: %s", pluginpkg.ErrBuiltinPlugin, id)
-		}
 		span := tracepkg.Start(cmd.Context(), "PLUGIN", traceName, action+" plugin", tracepkg.String("plugin_id", string(id)))
 		if err := manager.Store.SetEnabled(id, enabled); err != nil {
 			span.Fail(err)

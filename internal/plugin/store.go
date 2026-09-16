@@ -400,7 +400,62 @@ func (store *Store) ActivateWithState(id PluginID, version Version, trust Activa
 	})
 }
 
+func (store *Store) lookupBuiltin(id PluginID) (Builtin, bool) {
+	if store != nil {
+		if builtin, ok := store.Builtins.Lookup(id); ok {
+			return builtin, true
+		}
+	}
+	return compiledBuiltin(id)
+}
+
+func (store *Store) BuiltinEnabled(id PluginID) bool {
+	builtin, ok := store.lookupBuiltin(id)
+	if !ok {
+		return false
+	}
+	if store == nil {
+		return builtin.DefaultEnabled
+	}
+	config, err := store.layout.LoadConfig()
+	if err != nil {
+		return builtin.DefaultEnabled
+	}
+	if state, ok := config.Builtins[id]; ok {
+		return state.Enabled
+	}
+	return builtin.DefaultEnabled
+}
+
+func (store *Store) setBuiltinEnabled(builtin Builtin, enabled bool) error {
+	if !builtin.Disableable {
+		return fmt.Errorf("%w: %s cannot be disabled", ErrBuiltinPlugin, builtin.ID)
+	}
+	if store.layout.EffectiveScope() != ScopeGlobal {
+		return fmt.Errorf("built-in plugin %s is global-only", builtin.ID)
+	}
+	return MutateConfig(store.layout, func(config *Config) error {
+		if enabled == builtin.DefaultEnabled {
+			if config.Builtins != nil {
+				delete(config.Builtins, builtin.ID)
+				if len(config.Builtins) == 0 {
+					config.Builtins = nil
+				}
+			}
+			return nil
+		}
+		if config.Builtins == nil {
+			config.Builtins = map[PluginID]BuiltinState{}
+		}
+		config.Builtins[builtin.ID] = BuiltinState{Enabled: enabled}
+		return nil
+	})
+}
+
 func (store *Store) SetEnabled(id PluginID, enabled bool) error {
+	if builtin, ok := store.lookupBuiltin(id); ok {
+		return store.setBuiltinEnabled(builtin, enabled)
+	}
 	unlock, err := store.lockMutation()
 	if err != nil {
 		return err

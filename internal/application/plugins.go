@@ -179,7 +179,7 @@ func (service *PluginService) InstalledDetail(id pluginpkg.PluginID) (PluginDeta
 		return service.withScope(PluginDetail{
 			Reference: string(id), Manifest: manifest, Registry: pluginpkg.Registry{Name: pluginpkg.BuiltinRegistryName},
 			Publisher: pluginpkg.Publisher{Name: pluginpkg.BuiltinPublisher, Trusted: true, Source: "compiled into chatgpt-mcp"},
-			Installed: true, Enabled: builtin.DefaultEnabled, Origin: pluginpkg.OriginBuiltin, Lifecycle: builtin.Lifecycle(),
+			Installed: true, Enabled: service.Manager.Store.BuiltinEnabled(id), Origin: pluginpkg.OriginBuiltin, Lifecycle: builtin.Lifecycle(),
 			SignatureStatus: "built-in", CoreCompatibility: "compiled into chatgpt-mcp",
 		}), nil
 	}
@@ -303,12 +303,6 @@ func (service *PluginService) SetEnabled(ctx context.Context, id pluginpkg.Plugi
 	}
 	span := tracepkg.Start(ctx, "PLUGIN", "plugin.tui.toggle", "Changing plugin enabled state", tracepkg.String("plugin_id", string(id)), tracepkg.Bool("enabled", enabled))
 	defer func() { span.Finish(err) }()
-	if builtin, ok := service.Manager.LookupBuiltin(id); ok {
-		if !builtin.Disableable {
-			return fmt.Errorf("%w: %s cannot be disabled", pluginpkg.ErrBuiltinPlugin, id)
-		}
-		return fmt.Errorf("%w: %s", pluginpkg.ErrBuiltinPlugin, id)
-	}
 	return service.Manager.Store.SetEnabled(id, enabled)
 }
 

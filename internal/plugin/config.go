@@ -17,12 +17,17 @@ type Config struct {
 	Schema     int                        `json:"schema"`
 	Registries map[string]Registry        `json:"registries"`
 	Desired    map[PluginID]DesiredPlugin `json:"desired,omitempty"`
+	Builtins   map[PluginID]BuiltinState  `json:"builtins,omitempty"`
 }
 
 type DesiredPlugin struct {
 	Registry string  `json:"registry"`
 	Version  Version `json:"version"`
 	Enabled  bool    `json:"enabled"`
+}
+
+type BuiltinState struct {
+	Enabled bool `json:"enabled"`
 }
 
 func NewConfig() Config {
@@ -150,6 +155,11 @@ func (config Config) Validate() error {
 		}
 		if err := validateVersion(string(desired.Version)); err != nil {
 			return fmt.Errorf("invalid desired version for plugin %s: %q", id, desired.Version)
+		}
+	}
+	for id := range config.Builtins {
+		if !validCanonicalName(string(id)) {
+			return fmt.Errorf("invalid built-in plugin id: %q", id)
 		}
 	}
 	return nil

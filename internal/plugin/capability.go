@@ -134,7 +134,7 @@ func appendResolverProviders(store *Store, providers map[Capability][]Capability
 		}
 	}
 	for _, builtin := range store.Builtins {
-		if !builtin.DefaultEnabled {
+		if !store.BuiltinEnabled(builtin.ID) {
 			continue
 		}
 		provider := CapabilityProvider{PluginID: builtin.ID, Version: catalogCoreVersion(store.runtime.CoreVersion), Name: builtin.Name, Permissions: append([]Permission(nil), builtin.Permissions...), Scope: ScopeGlobal}

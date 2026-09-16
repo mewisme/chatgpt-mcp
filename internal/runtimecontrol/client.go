@@ -73,6 +73,7 @@ type RuntimeStatus struct {
 	TunnelLastError   string                `json:"tunnel_last_error,omitempty"`
 	TunnelSummary     TunnelSummary         `json:"tunnel_summary"`
 	Tunnels           []TunnelRuntimeStatus `json:"tunnels,omitempty"`
+	CFTunnel          *CFTunnelStatus       `json:"cf_tunnel,omitempty"`
 	ToolProfile       string                `json:"tool_profile,omitempty"`
 	ToolCount         int                   `json:"tool_count,omitempty"`
 }
@@ -96,6 +97,21 @@ type TunnelRuntimeStatus struct {
 	Ready      bool   `json:"ready"`
 	Restarting bool   `json:"restarting"`
 	LastError  string `json:"last_error,omitempty"`
+}
+
+type CFTunnelStatus struct {
+	PluginEnabled bool                   `json:"plugin_enabled"`
+	Targets       []CFTunnelTargetStatus `json:"targets,omitempty"`
+}
+
+type CFTunnelTargetStatus struct {
+	Target    string `json:"target"`
+	Desired   bool   `json:"desired"`
+	Running   bool   `json:"running"`
+	Ready     bool   `json:"ready"`
+	URL       string `json:"url,omitempty"`
+	Origin    string `json:"origin,omitempty"`
+	LastError string `json:"last_error,omitempty"`
 }
 
 type State struct {

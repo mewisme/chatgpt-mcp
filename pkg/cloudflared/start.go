@@ -54,6 +54,21 @@ func (t *Tunnel) Wait() error {
 	return <-t.errc
 }
 
+// Stub returns a Tunnel that never talks to Cloudflare. Tests use it as Start.
+func Stub(url string) *Tunnel {
+	return &Tunnel{URL: strings.TrimSpace(url), errc: make(chan error, 1)}
+}
+
+func (t *Tunnel) Complete(err error) {
+	if t == nil {
+		return
+	}
+	select {
+	case t.errc <- err:
+	default:
+	}
+}
+
 func Start(ctx context.Context, cfg Config) (*Tunnel, error) {
 	origin, err := validateOriginURL(cfg.OriginURL)
 	if err != nil {

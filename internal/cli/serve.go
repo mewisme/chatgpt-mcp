@@ -14,9 +14,11 @@ import (
 	"github.com/spf13/cobra"
 
 	"go.mewis.me/chatgpt-mcp/internal/app"
+	"go.mewis.me/chatgpt-mcp/internal/application"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/idgen"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
+	"go.mewis.me/chatgpt-mcp/internal/pluginhost"
 	"go.mewis.me/chatgpt-mcp/internal/runtimecontrol"
 	"go.mewis.me/chatgpt-mcp/internal/runtimeevent"
 	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
@@ -54,6 +56,29 @@ func runtimeTunnelStatuses(runtime *app.App, cfg config.Config) (runtimecontrol.
 		}
 	}
 	return summary, items
+}
+
+func cfTunnelRuntimeStatus() *runtimecontrol.CFTunnelStatus {
+	st := pluginhost.RuntimeStatus()
+	out := &runtimecontrol.CFTunnelStatus{PluginEnabled: st.Enabled, Targets: make([]runtimecontrol.CFTunnelTargetStatus, 0, len(st.Targets))}
+	interesting := st.Enabled
+	for _, item := range st.Targets {
+		if item.Desired || item.Running || item.Ready || item.LastError != "" {
+			interesting = true
+		}
+		out.Targets = append(out.Targets, runtimecontrol.CFTunnelTargetStatus{
+			Target: item.Target, Desired: item.Desired, Running: item.Running, Ready: item.Ready,
+			URL: item.URL, Origin: item.Origin, LastError: item.LastError,
+		})
+	}
+	if !interesting {
+		return nil
+	}
+	return out
+}
+
+func syncCFTunnel(ctx context.Context, cfg config.Config) {
+	pluginhost.SyncRuntime(ctx, application.CFTunnelSnapshot(cfg))
 }
 
 func serveCommand() *cobra.Command {
@@ -275,6 +300,7 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 			currentCfg, currentPlan = next, nextPlan
 			stateMu.Unlock()
 			runtime.Logger.Ready("CONFIG", "config.reloaded", "Configuration reloaded")
+			syncCFTunnel(reloadCtx, next)
 			result = reloadResult(next, false)
 			return result, nil
 		}
@@ -335,6 +361,7 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 			currentCfg, currentPlan = next, nextPlan
 			stateMu.Unlock()
 			logReadyEndpoints(runtime.Logger, next, nextPlan)
+			syncCFTunnel(reloadCtx, next)
 			result = reloadResult(next, true)
 			return result, nil
 		}
@@ -363,6 +390,7 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 		currentCfg, currentPlan = next, nextPlan
 		stateMu.Unlock()
 		logReadyEndpoints(runtime.Logger, next, nextPlan)
+		syncCFTunnel(reloadCtx, next)
 		result = reloadResult(next, true)
 		return result, nil
 	}
@@ -372,7 +400,7 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 		stateMu.RUnlock()
 		tunnelSummary, tunnelItems := runtimeTunnelStatuses(runtime, cfgSnapshot)
 		fingerprint, _ := config.RuntimeFingerprint(cfgSnapshot)
-		result := runtimeStatusResult{PID: os.Getpid(), RunID: metadata.RunID, Lifecycle: lifecycleSnapshot, Starting: runtimeLifecycleStarting(lifecycleSnapshot), Managed: metadata.Managed, ServiceID: metadata.ServiceID, ServiceScope: metadata.ServiceScope, StartedAt: startedAt, ConfigRoot: config.RootPath(), ConfigFingerprint: fingerprint, ServerEnabled: cfgSnapshot.Server.Enabled, ServerPort: cfgSnapshot.Server.Port, AdminEnabled: cfgSnapshot.Admin.Enabled, AdminPort: cfgSnapshot.Admin.Port, Exposure: cfgSnapshot.Server.Expose.Mode, TunnelEnabled: tunnelSummary.Enabled > 0, TunnelConfigured: tunnelSummary.Configured > 0, TunnelRunning: tunnelSummary.Running > 0, TunnelReady: tunnelSummary.Ready > 0, TunnelRestarting: tunnelSummary.Restarting > 0, TunnelSummary: tunnelSummary, Tunnels: tunnelItems, ToolProfile: "full", ToolCount: len(runtime.Tools.List())}
+		result := runtimeStatusResult{PID: os.Getpid(), RunID: metadata.RunID, Lifecycle: lifecycleSnapshot, Starting: runtimeLifecycleStarting(lifecycleSnapshot), Managed: metadata.Managed, ServiceID: metadata.ServiceID, ServiceScope: metadata.ServiceScope, StartedAt: startedAt, ConfigRoot: config.RootPath(), ConfigFingerprint: fingerprint, ServerEnabled: cfgSnapshot.Server.Enabled, ServerPort: cfgSnapshot.Server.Port, AdminEnabled: cfgSnapshot.Admin.Enabled, AdminPort: cfgSnapshot.Admin.Port, Exposure: cfgSnapshot.Server.Expose.Mode, TunnelEnabled: tunnelSummary.Enabled > 0, TunnelConfigured: tunnelSummary.Configured > 0, TunnelRunning: tunnelSummary.Running > 0, TunnelReady: tunnelSummary.Ready > 0, TunnelRestarting: tunnelSummary.Restarting > 0, TunnelSummary: tunnelSummary, Tunnels: tunnelItems, CFTunnel: cfTunnelRuntimeStatus(), ToolProfile: "full", ToolCount: len(runtime.Tools.List())}
 		if len(tunnelItems) == 1 {
 			result.TunnelID = tunnelItems[0].ID
 			result.TunnelLastError = tunnelItems[0].LastError
@@ -468,6 +496,7 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 	if err := waitRuntimeHTTPReady(runtimeCtx, cfg, 3*time.Second); err != nil {
 		return errors.Join(err, bindings.Shutdown())
 	}
+	syncCFTunnel(runtimeCtx, cfg)
 	setLifecycle("listeners_ready")
 	if !cfg.Server.Enabled && len(cfg.RuntimeTunnels().Instances) > 0 {
 		setLifecycle("tunnel_connecting")
@@ -485,6 +514,7 @@ func runServer(cmd *cobra.Command, args []string) (runErr error) {
 		setLifecycle("stopping")
 		span := tracepkg.Start(runtimeCtx, "SERVER", "server.shutdown", "Stopping server runtime", tracepkg.String("reason", reason), tracepkg.Int("mcp_port", currentCfg.Server.Port), tracepkg.Int("admin_port", currentCfg.Admin.Port))
 		runtime.Logger.Action("SERVER", "server.stopping", "Stopping server")
+		pluginhost.StopRuntime()
 		listenerSpan := tracepkg.Start(runtimeCtx, "NETWORK", "server.listeners.shutdown", "Shutting down server listeners", tracepkg.String("reason", reason), tracepkg.Int("listener_count", len(bindings.mcpListeners)+len(bindings.adminListeners)))
 		err := bindings.Shutdown()
 		if err != nil {

@@ -180,7 +180,7 @@ func (manager Manager) Catalog() ([]CatalogPlugin, error) {
 	items := make([]CatalogPlugin, 0, len(lock.Plugins)+len(manager.Store.Builtins))
 	seen := map[PluginID]struct{}{}
 	for _, builtin := range manager.Store.Builtins {
-		items = append(items, builtinCatalogPlugin(builtin, manager.Store.runtime.CoreVersion))
+		items = append(items, builtinCatalogPlugin(manager.Store, builtin))
 		seen[builtin.ID] = struct{}{}
 	}
 	ids := make([]PluginID, 0, len(lock.Plugins))
@@ -220,10 +220,16 @@ func (manager Manager) CatalogPlugin(id PluginID) (CatalogPlugin, error) {
 	return CatalogPlugin{}, fmt.Errorf("plugin %s is not installed", id)
 }
 
-func builtinCatalogPlugin(builtin Builtin, coreVersion string) CatalogPlugin {
+func builtinCatalogPlugin(store *Store, builtin Builtin) CatalogPlugin {
+	coreVersion := ""
+	enabled := builtin.DefaultEnabled
+	if store != nil {
+		coreVersion = store.runtime.CoreVersion
+		enabled = store.BuiltinEnabled(builtin.ID)
+	}
 	manifest := builtin.CatalogManifest(coreVersion)
 	return CatalogPlugin{
-		ID: builtin.ID, Origin: OriginBuiltin, Lifecycle: builtin.Lifecycle(), Enabled: builtin.DefaultEnabled,
+		ID: builtin.ID, Origin: OriginBuiltin, Lifecycle: builtin.Lifecycle(), Enabled: enabled,
 		Version: manifest.Version, Registry: BuiltinRegistryName, Publisher: BuiltinPublisher,
 		Installed: InstalledPlugin{Manifest: manifest}, Schema: builtin.Schema, Scopes: builtin.AllowedScopes(),
 	}

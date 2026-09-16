@@ -144,7 +144,7 @@ func TestConfigFieldDetailNeverRendersSecretOrHash(t *testing.T) {
 	if strings.Contains(view, "FIELD_DETAIL_SECRET") {
 		t.Fatalf("field detail leaked secret: %q", view)
 	}
-	for _, want := range []string{"configured", "managed", "Guidance", "auth token workflow"} {
+	for _, want := range []string{"configured", "managed", "Guidance", "Reuse this token"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("field detail missing %q: %q", want, view)
 		}
@@ -377,7 +377,7 @@ func TestConfigPageReadOnlyGuidance(t *testing.T) {
 	if cmd, err := page.openCommand(ConfigEdit, "auth.mcp_token_hash"); err != nil || cmd != nil {
 		t.Fatalf("read-only edit cmd=%v err=%v", cmd != nil, err)
 	}
-	if page.overlay != configOverlayNone || !strings.Contains(page.notice, "auth token") {
+	if page.overlay != configOverlayNone || !strings.Contains(page.notice, "Reuse this token") {
 		t.Fatalf("overlay=%d notice=%q", page.overlay, page.notice)
 	}
 }

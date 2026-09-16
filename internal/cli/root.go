@@ -96,7 +96,7 @@ func initCommand() *cobra.Command {
 			log.Detail("config", result.ConfigPath)
 			log.Detail("format", result.Format)
 			logEndpointDetails(log, result.Config)
-			log.Secret("mcp token", result.MCPToken)
+			log.Secret("Direct MCP HTTP token", result.MCPToken)
 			log.Secret("admin token", result.AdminToken)
 			return nil
 		},
@@ -131,7 +131,7 @@ func purgeStoredSecrets(root string) error { return application.PurgeStoredSecre
 func removeConfigRoot(root string) error   { return application.RemoveConfigRoot(root) }
 
 func authCommand() *cobra.Command {
-	cmd := &cobra.Command{Use: "auth", Short: "Manage MCP and admin authentication"}
+	cmd := &cobra.Command{Use: "auth", Short: "Manage Direct MCP HTTP and admin authentication"}
 	cmd.AddCommand(
 		authKindCommand("mcp"),
 		authKindCommand("admin"),
@@ -142,14 +142,24 @@ func authCommand() *cobra.Command {
 
 func authKindCommand(kind string) *cobra.Command {
 	cmd := &cobra.Command{Use: kind, Short: "Manage " + kind + " authentication"}
+	if kind == "mcp" {
+		cmd.Short = "Manage Direct MCP HTTP authentication"
+		cmd.Long = "Protects direct connections to /mcp. Secure MCP Tunnel uses separate tunnel credentials and is unaffected.\n\nReuse the Direct MCP HTTP token when adding this MCP server to ChatGPT. You do not need to generate a new token for each connection."
+	}
 	cmd.AddCommand(authCreateCommand(kind), authToggleCommand(kind, true), authToggleCommand(kind, false))
 	return cmd
 }
 
 func authCreateCommand(kind string) *cobra.Command {
+	short := "Create or rotate the " + kind + " token"
+	label := strings.ToUpper(kind)
+	if kind == "mcp" {
+		short = "Create or rotate the Direct MCP HTTP token"
+		label = "Direct MCP HTTP token"
+	}
 	return &cobra.Command{
 		Use:   "create",
-		Short: "Create or rotate the " + kind + " token",
+		Short: short,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			logCommandStep(cmd, "AUTH", "auth.token.rotating", "Creating or rotating authentication token", logger.WithVerbose("type", kind))
 			token, _, err := application.RotateAuthToken(cmd.Context(), kind)
@@ -158,7 +168,7 @@ func authCreateCommand(kind string) *cobra.Command {
 			}
 			log := commandLogger(cmd)
 			log.Success("AUTH", "token rotated", "type", kind)
-			log.Secret(strings.ToUpper(kind), token)
+			log.Secret(label, token)
 			return nil
 		},
 	}
@@ -169,9 +179,13 @@ func authToggleCommand(kind string, enabled bool) *cobra.Command {
 	if enabled {
 		action = "enable"
 	}
+	short := action + " " + kind + " authentication"
+	if kind == "mcp" {
+		short = action + " Direct MCP HTTP authentication"
+	}
 	return &cobra.Command{
 		Use:   action,
-		Short: action + " " + kind + " authentication",
+		Short: short,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			logCommandStep(cmd, "AUTH", "auth.state.updating", "Updating authentication state", logger.WithVerbose("type", kind), logger.WithVerbose("enabled", enabled))
 			if _, err := application.SetAuthEnabled(cmd.Context(), kind, enabled); err != nil {
@@ -191,7 +205,7 @@ func authStatusCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:     "status",
 		Aliases: []string{"st"},
-		Short:   "Show authentication state without revealing token hashes",
+		Short:   "Show Direct MCP HTTP and admin authentication state without revealing tokens",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			logCommandStep(cmd, "AUTH", "auth.status.loading", "Loading authentication state")
 			status, err := application.GetAuthStatusContext(cmd.Context())
@@ -199,7 +213,7 @@ func authStatusCommand() *cobra.Command {
 				return err
 			}
 			log := commandLogger(cmd)
-			log.Info("AUTH", "authentication status")
+			log.Info("AUTH", "Direct MCP HTTP authentication protects /mcp only; Secure MCP Tunnel is unaffected")
 			log.Detail("mcp", fmt.Sprintf("enabled=%t configured=%t legacy_bearer=%t", status.MCPEnabled, status.MCPConfigured, status.MCPLegacyBearer))
 			log.Detail("admin", fmt.Sprintf("enabled=%t configured=%t", status.AdminEnabled, status.AdminConfigured))
 			return nil

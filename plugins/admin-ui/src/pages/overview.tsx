@@ -173,11 +173,11 @@ export function OverviewPage() {
               Authentication
             </CardTitle>
             <CardDescription>
-              Protection applied to the local MCP and Admin listeners.
+              Direct MCP HTTP authentication protects /mcp only. Admin authentication is separate. Secure MCP Tunnel is unaffected.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-0">
-            <AuthState label="MCP authentication" enabled={data?.mcpAuth} />
+            <AuthState label="Direct MCP HTTP authentication" enabled={data?.mcpAuth} />
             <Separator />
             <AuthState label="Admin authentication" enabled={data?.adminAuth} />
           </CardContent>

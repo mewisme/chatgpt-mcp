@@ -28,7 +28,7 @@ func TestAuthCommandUsesNestedHierarchy(t *testing.T) {
 func TestAuthCreateAndInitRevealTokensOnce(t *testing.T) {
 	defer configformat.SetRootPath("")
 	root := filepath.Join(t.TempDir(), "config")
-	tokenPattern := regexp.MustCompile(`(?m)^\s+(mcp token|MCP):\s+(mcp_[A-Za-z0-9_-]{24,})\s*$`)
+	tokenPattern := regexp.MustCompile(`(?m)^\s+Direct MCP HTTP token:\s+(mcp_[A-Za-z0-9_-]{24,})\s*$`)
 
 	var initOut bytes.Buffer
 	initCmd := newRootCommand()

@@ -107,7 +107,7 @@ func SetAuthEnabled(ctx context.Context, kind string, enabled bool) (AuthStatus,
 	cfg := previous
 	if kind == "mcp" {
 		if enabled && cfg.Auth.MCPTokenHash == "" {
-			err := errors.New("MCP token is not configured; create one first")
+			err := errors.New("direct MCP HTTP token is not configured; create one first")
 			span.FailMessage("Authentication state update failed", err)
 			return AuthStatus{}, err
 		}

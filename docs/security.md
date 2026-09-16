@@ -84,7 +84,7 @@ Runtime observability uses safe session metadata/fingerprints rather than exposi
 
 ## Endpoint tenancy
 
-A runtime-level MCP credential authenticates the corresponding endpoint, not an individual workspace. A client that is legitimately authenticated to that runtime can target registered workspaces according to the runtime's tool/session rules.
+A runtime-level Direct MCP HTTP token authenticates direct `/mcp` HTTP access, not an individual workspace. It does not apply to Secure MCP Tunnel. A client that is legitimately authenticated to that runtime can target registered workspaces according to the runtime's tool/session rules.
 
 When two agents must not share the same runtime-level trust domain, use separate runtime instances/config roots or otherwise narrow what is registered. Do not treat workspace IDs themselves as authentication secrets.
 
@@ -149,7 +149,7 @@ If stronger isolation is required, provide it externally with an OS sandbox, VM/
 
 ## Authentication
 
-MCP and Admin endpoint authentication are distinct policies:
+MCP and Admin endpoint authentication are distinct policies. Direct MCP HTTP authentication protects `/mcp` only; Secure MCP Tunnel uses separate credentials and is unaffected.
 
 ```bash
 cgm auth status
@@ -157,9 +157,9 @@ cgm auth mcp create
 cgm auth admin create
 ```
 
-Direct authenticated endpoints expect their own credentials. The OpenAI Secure MCP Tunnel runtime API key is separate and must not be confused with an MCP/Admin bearer token.
+Direct authenticated endpoints expect their own credentials. The OpenAI Secure MCP Tunnel runtime API key is separate and must not be confused with a Direct MCP HTTP or Admin bearer token.
 
-Protected generic `cgm mcp http` uses the Direct MCP HTTP bearer token. Secure MCP Tunnel credentials are separate.
+Protected generic `cgm mcp http` uses the Direct MCP HTTP token. Reuse that token when adding this MCP server to ChatGPT; a new token is not required for each ChatGPT configuration.
 
 Disabling authentication on an enabled HTTP endpoint requires the corresponding explicit loopback acknowledgement and remains restricted by exposure validation. Prefer authenticated endpoints.
 
@@ -190,8 +190,8 @@ Keep these roles distinct:
 tunnel_id          non-secret tunnel identifier
 runtime API key    secret used by the local tunnel runtime
 Admin API key      secret for Platform administrative tunnel operations
-MCP token          credential for direct MCP endpoint compatibility
-Admin token        credential for local Admin endpoint
+Direct MCP HTTP token    credential for direct /mcp HTTP access only
+Admin token              credential for local Admin endpoint
 ```
 
 For the normal tunnel runtime, use **Tunnels Read + Use**. Do not use an OpenAI Admin API key as the long-lived daemon key.

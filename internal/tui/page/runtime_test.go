@@ -89,7 +89,7 @@ func TestRuntimeRowsUseDescriptiveTitlesAndDescriptions(t *testing.T) {
 	}
 	mcpAuthItem, adminAuthItem := page.authItem("mcp"), page.authItem("admin")
 	mcpAuth, adminAuth := mcpAuthItem.row, adminAuthItem.row
-	if mcpAuth.Title != "MCP HTTP authentication" || adminAuth.Title != "Admin UI authentication" || !strings.Contains(mcpAuth.Description, "auth only") || !strings.Contains(mcpAuthItem.detail, "listener is controlled by MCP HTTP server") || !strings.Contains(mcpAuthItem.detail, "Legacy bearer") {
+	if mcpAuth.Title != "Direct MCP HTTP authentication" || adminAuth.Title != "Admin UI authentication" || !strings.Contains(mcpAuth.Description, "/mcp only") || !strings.Contains(mcpAuthItem.detail, "Secure MCP Tunnel is unaffected") || !strings.Contains(mcpAuthItem.detail, "Legacy bearer") {
 		t.Fatalf("authentication rows MCP=%#v admin=%#v", mcpAuth, adminAuth)
 	}
 }

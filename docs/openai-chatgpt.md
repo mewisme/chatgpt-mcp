@@ -208,7 +208,7 @@ Keep `chatgpt-mcp` running during discovery and inspect `cgm tunnel status` plus
 - Do not expose the local MCP HTTP port publicly just to use Secure MCP Tunnel.
 - Do not use an OpenAI Admin API key as the long-lived runtime key.
 - Do not paste the tunnel runtime key into the ChatGPT app's normal auth field.
-- Do not commit runtime keys, MCP tokens, Admin tokens, or exported secrets.
+- Do not commit runtime keys, Direct MCP HTTP tokens, Admin tokens, or exported secrets.
 - Do not grant `Manage` to the runtime key unless the same principal genuinely needs tunnel administration.
 
 ## Official OpenAI references

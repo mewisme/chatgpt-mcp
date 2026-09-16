@@ -298,7 +298,7 @@ Inspect authentication:
 cgm auth status
 ```
 
-Create/rotate an MCP token if needed:
+Create/rotate a Direct MCP HTTP token if needed:
 
 ```bash
 cgm auth mcp create
@@ -307,10 +307,10 @@ cgm auth mcp create
 Then send:
 
 ```http
-Authorization: Bearer <mcp-token>
+Authorization: Bearer <direct-mcp-http-token>
 ```
 
-Do not confuse this MCP token with the OpenAI tunnel runtime API key.
+Do not confuse this Direct MCP HTTP token with the OpenAI tunnel runtime API key. Secure MCP Tunnel is unaffected. Reuse the same token when adding this MCP server to ChatGPT.
 
 ## Wildcard exposure is rejected
 

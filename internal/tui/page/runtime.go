@@ -929,14 +929,14 @@ func (page *RuntimePage) authItem(kind string) runtimeItem {
 	if configured {
 		configuredText = "configured"
 	}
-	title := "MCP HTTP authentication"
+	title := "Direct MCP HTTP authentication"
 	description := state + " · token " + configuredText
-	scope := "Controls authentication only; the MCP HTTP listener is controlled by MCP HTTP server."
+	scope := "Protects direct /mcp HTTP only. Secure MCP Tunnel is unaffected."
 	if kind == "admin" {
 		title = "Admin UI authentication"
 		scope = "Controls authentication for the Admin UI only."
 	} else {
-		description += " · auth only"
+		description += " · /mcp only"
 	}
 	security := "Token hashes are persisted; plaintext is shown once after rotation."
 	legacyBearer := "n/a"
@@ -958,7 +958,11 @@ func (page *RuntimePage) authItem(kind string) runtimeItem {
 		fields = append(fields, [2]string{"Legacy bearer", legacyBearer})
 	}
 	fields = append(fields, [2]string{"Scope", scope}, [2]string{"Security", security})
-	return runtimeItem{row: component.Row{ID: "auth." + kind, Title: title, Description: description, Search: "auth token " + kind}, detailTitle: title, detail: detailFields(fields...)}
+	search := "auth token " + kind
+	if kind != "admin" {
+		search += " direct mcp http"
+	}
+	return runtimeItem{row: component.Row{ID: "auth." + kind, Title: title, Description: description, Search: search}, detailTitle: title, detail: detailFields(fields...)}
 }
 
 func (page *RuntimePage) installItem() runtimeItem {
@@ -1054,7 +1058,7 @@ func (page *RuntimePage) confirmActionLabel() string {
 func (page *RuntimePage) confirmTitle() string {
 	switch page.pending {
 	case AuthMCPRotate:
-		return "Rotate MCP token?"
+		return "Rotate Direct MCP HTTP token?"
 	case AuthAdminRotate:
 		return "Rotate admin token?"
 	case InstallCleanup:

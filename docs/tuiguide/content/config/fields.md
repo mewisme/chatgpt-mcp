@@ -57,17 +57,17 @@ Integer TCP port for the admin HTTP server. Valid range is `1-65535` while the s
 
 ## Access & Security
 
-### `auth.mcp_enabled` — MCP authentication
+### `auth.mcp_enabled` — Direct MCP HTTP authentication
 
-Boolean token-authentication switch for the MCP HTTP endpoint. Non-loopback HTTP exposure requires MCP authentication with a configured credential.
+Boolean token-authentication switch for direct `/mcp` HTTP access. Protects `/mcp` only; Secure MCP Tunnel is unaffected. Non-loopback HTTP exposure requires Direct MCP HTTP authentication with a configured token. Reuse the Direct MCP HTTP token when adding this MCP server to ChatGPT.
 
 ### `auth.admin_enabled` — Admin authentication
 
 Boolean token-authentication switch for the admin HTTP endpoint. Non-loopback exposure with the admin endpoint enabled requires admin authentication and a configured credential.
 
-### `auth.mcp_token_hash` — MCP credential
+### `auth.mcp_token_hash` — Direct MCP HTTP token
 
-Read-only, sensitive managed credential hash. The raw token is never exposed through config views. Manage it through the MCP authentication/token workflow rather than Config field editing.
+Read-only, sensitive managed credential hash. The raw token is never exposed through config views. Reuse this token when adding this MCP server to ChatGPT. Manage it with `cgm auth mcp create` rather than Config field editing.
 
 ### `auth.admin_token_hash` — Admin credential
 

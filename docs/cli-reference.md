@@ -474,7 +474,9 @@ cgm auth admin enable
 cgm auth admin disable
 ```
 
-`cgm mcp stdio` does not use HTTP bearer authentication. `cgm mcp http` uses the Direct MCP HTTP bearer token when `auth.mcp_enabled` is true.
+Direct MCP HTTP authentication protects `/mcp` only. `cgm mcp stdio` does not use HTTP bearer authentication. `cgm mcp http` uses the Direct MCP HTTP token when `auth.mcp_enabled` is true. Secure MCP Tunnel uses separate credentials and is unaffected.
+
+Reuse the Direct MCP HTTP token when adding this MCP server to ChatGPT. You do not need to generate a new token for each connection.
 
 Use subcommand help for enable/disable/rotation options exposed by the current binary:
 

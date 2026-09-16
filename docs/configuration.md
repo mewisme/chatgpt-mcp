@@ -157,7 +157,7 @@ See [Security](security.md) for the storage and trust model.
 
 ## Authentication
 
-MCP and Admin endpoint authentication are separate policies:
+MCP and Admin endpoint authentication are separate policies. Direct MCP HTTP authentication protects `/mcp` only; Secure MCP Tunnel uses separate credentials and is unaffected. Reuse the Direct MCP HTTP token when adding this MCP server to ChatGPT — you do not need a new token for each ChatGPT configuration.
 
 ```bash
 cgm auth status
@@ -167,9 +167,9 @@ cgm auth mcp enable
 cgm auth admin enable
 ```
 
-Direct authenticated HTTP clients use the credential expected by that endpoint/transport. The OpenAI tunnel runtime API key is different: it authenticates the tunnel client to OpenAI and is not an MCP/Admin bearer token.
+Direct authenticated HTTP clients use the credential expected by that endpoint/transport. The OpenAI tunnel runtime API key is different: it authenticates the tunnel client to OpenAI and is not a Direct MCP HTTP or Admin bearer token.
 
-Generic protected `cgm mcp http` uses the same Direct MCP HTTP bearer token as managed `/mcp`. Secure MCP Tunnel credentials are separate.
+Generic protected `cgm mcp http` uses the same Direct MCP HTTP token as managed `/mcp`. Secure MCP Tunnel credentials are separate.
 
 ## Network exposure
 

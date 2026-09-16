@@ -63,14 +63,14 @@ func Validate(cfg Config) error {
 			return errors.New("non-loopback HTTP exposure requires server.allow_insecure_http=true; prefer Secure MCP Tunnel or a TLS reverse proxy")
 		}
 		if cfg.Server.Enabled && (!cfg.Auth.MCPEnabled || cfg.Auth.MCPTokenHash == "") {
-			return errors.New("network exposure requires MCP authentication with a configured token; run chatgpt-mcp auth mcp create")
+			return errors.New("network exposure requires Direct MCP HTTP authentication with a configured token; run chatgpt-mcp auth mcp create")
 		}
 		if cfg.Admin.Enabled && (!cfg.Auth.AdminEnabled || cfg.Auth.AdminTokenHash == "") {
 			return errors.New("network exposure with the admin endpoint enabled requires admin authentication with a configured token; run chatgpt-mcp auth admin create")
 		}
 	}
 	if cfg.Server.Enabled && cfg.Auth.MCPEnabled && cfg.Auth.MCPTokenHash == "" {
-		return errors.New("MCP auth is enabled but no token is configured; run chatgpt-mcp auth mcp create")
+		return errors.New("direct MCP HTTP authentication is enabled but no token is configured; run chatgpt-mcp auth mcp create")
 	}
 	if cfg.Admin.Enabled && cfg.Auth.AdminEnabled && cfg.Auth.AdminTokenHash == "" {
 		return errors.New("admin auth is enabled but no token is configured; run chatgpt-mcp auth admin create")

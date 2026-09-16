@@ -906,7 +906,7 @@ func (page *ConfigPage) domainSummary(domain string) string {
 		}
 		return summary
 	case "access":
-		summary := fmt.Sprintf("MCP auth %s · Admin auth %s · %d extra filesystem roots", configOnOff(cfg.Auth.MCPEnabled), configOnOff(cfg.Auth.AdminEnabled), len(cfg.Permissions.AllowDirs))
+		summary := fmt.Sprintf("Direct MCP HTTP auth %s · Admin auth %s · %d extra filesystem roots", configOnOff(cfg.Auth.MCPEnabled), configOnOff(cfg.Auth.AdminEnabled), len(cfg.Permissions.AllowDirs))
 		if config.UnauthenticatedLoopbackActive(cfg) {
 			summary += " · UNAUTHENTICATED LOOPBACK"
 		}

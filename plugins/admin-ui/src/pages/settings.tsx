@@ -505,18 +505,18 @@ export function SettingsPage() {
             <CardHeader>
               <CardTitle>Authentication</CardTitle>
               <CardDescription>
-                Authentication is mandatory for direct network exposure; Admin
-                authentication is mandatory when its endpoint is exposed.
+                Direct MCP HTTP authentication protects /mcp only. Admin authentication is separate. Secure MCP Tunnel is unaffected.
               </CardDescription>
             </CardHeader>
             <CardContent>
               <FieldGroup>
                 <AuthToggle
                   locked={exposed && config.server.enabled}
-                  label="MCP authentication"
+                  label="Direct MCP HTTP authentication"
                   configured={config.auth.mcp_token_configured}
                   checked={config.auth.mcp_enabled}
                   command="cgm auth mcp create"
+                  description="Protects direct connections to /mcp. Secure MCP Tunnel uses separate tunnel credentials and is unaffected."
                   onCheckedChange={(enabled) =>
                     setConfig({
                       ...config,
@@ -818,6 +818,7 @@ function AuthToggle({
   label,
   configured,
   command,
+  description,
   checked,
   locked = false,
   onCheckedChange,
@@ -825,6 +826,7 @@ function AuthToggle({
   label: string
   configured: boolean
   command: string
+  description?: string
   checked: boolean
   locked?: boolean
   onCheckedChange: (checked: boolean) => void
@@ -838,6 +840,7 @@ function AuthToggle({
             {configured ? "Token configured" : "Token missing"}
           </Badge>
         </div>
+        {description ? <FieldDescription>{description}</FieldDescription> : null}
         {!configured ? (
           <FieldDescription className="font-mono">{command}</FieldDescription>
         ) : null}

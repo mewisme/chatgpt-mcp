@@ -89,5 +89,18 @@ Remove from the extracted path if the corresponding cloudflared code is dropped:
 - CLI `cmd/`: ~9k LOC (do not copy)
 - Official `cloudflared-linux-amd64` binary: 38 MB; extracted library must be smaller and must not import `github.com/cloudflare/cloudflared/...`
 
-File-level classification of every reached cloudflared package is still open
-before the large copy in Phase 2.
+## Keep packages (tag `2026.9.1`)
+
+Rewrite imports into `go.mewis.me/chatgpt-mcp/pkg/cloudflared/...`:
+
+- `connection`, `connection/dialopts`
+- `supervisor`
+- `orchestration`
+- `edgediscovery`, `edgediscovery/allregions`
+- `quic`, `quic/v3`
+- `tunnelrpc`, `tunnelrpc/metrics`, `tunnelrpc/pogs`, `tunnelrpc/proto`, `tunnelrpc/quic`
+- `tunnelstate`, `retry`, `signal`, `stream`, `tlsconfig`, `ipaccess`, `packet`, `proxy`
+
+Keep only HTTP origin pieces from `ingress`. Drop `ingress/middleware` (JWT/Access) and ICMP/hello-world origin types during copy. Do not copy `*_test.go` until the stripped package still compiles.
+
+Next: Phase 2 copies those packages and rewrites `RunQuickTunnel` out of `cmd/cloudflared`.

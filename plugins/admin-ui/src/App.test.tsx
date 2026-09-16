@@ -435,6 +435,7 @@ async function mockFetch(input: RequestInfo | URL): Promise<Response> {
   if (path === "/api/tools") return json([])
   if (path === "/api/upstream") return json([])
   if (path === "/api/tunnels") return json([])
+  if (path === "/api/tunnel-providers") return json([])
   if (path === "/api/tunnel-admins") return json([])
   if (path === "/api/managed-tunnels") return json([])
   if (path === "/api/config") return json(config)

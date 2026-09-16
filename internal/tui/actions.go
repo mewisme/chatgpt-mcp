@@ -252,10 +252,10 @@ func cfTunnelAction(id, title, description string, keywords, commandPath []strin
 					if err != nil {
 						return tuipage.OperationResult(id, "CF Tunnel", "", err)
 					}
-					err = application.StartCFTunnel(ctx, cfg, "all")
+					err = application.StartTunnelProvider(ctx, cfg, "cf", "all")
 					return tuipage.OperationResult(id, "CF Tunnel", "CF Tunnel start requested", err)
 				case "stop":
-					err := application.StopCFTunnel(ctx, "all")
+					err := application.StopTunnelProvider(ctx, "cf", "all")
 					return tuipage.OperationResult(id, "CF Tunnel", "CF Tunnel stop requested", err)
 				default:
 					return tuipage.OperationResult(id, "CF Tunnel", "Use cgm tunnel cf status for ephemeral URLs", nil)

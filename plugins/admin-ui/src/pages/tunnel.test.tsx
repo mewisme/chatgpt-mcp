@@ -92,6 +92,7 @@ function localWith(id: string, patch: Partial<LocalTunnel> = {}) {
 describe("TunnelPage", () => {
   beforeEach(() => {
     vi.spyOn(adminApi, "localTunnels").mockResolvedValue(localTunnels)
+    vi.spyOn(adminApi, "tunnelProviders").mockResolvedValue([])
     vi.spyOn(adminApi, "tunnelAdminProfiles").mockResolvedValue(adminProfiles)
     vi.spyOn(adminApi, "managedTunnelCollection").mockResolvedValue(
       managedTunnels

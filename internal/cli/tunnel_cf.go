@@ -16,132 +16,201 @@ import (
 	cftunnelplugin "go.mewis.me/chatgpt-mcp/plugins/cf-tunnel"
 )
 
-func tunnelCFCommand() *cobra.Command {
-	cmd := &cobra.Command{Use: "cf", Short: "Expose local MCP and Admin HTTP through Cloudflare Quick Tunnels", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() }}
-	cmd.AddCommand(tunnelCFStatusCommand(), tunnelCFStartCommand(), tunnelCFStopCommand())
+func reservedTunnelCommand(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "list", "status", "add", "attach", "update", "detach", "enable", "disable", "start", "stop", "run", "managed", "admin", "help":
+		return true
+	default:
+		return false
+	}
+}
+
+func tunnelProviderCommand(provider, name string) *cobra.Command {
+	if strings.TrimSpace(name) == "" {
+		name = provider
+	}
+	cmd := &cobra.Command{Use: provider, Short: "Expose local MCP and Admin HTTP through " + name, Args: cobra.NoArgs, ValidArgsFunction: completeTunnelProviderAction, RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() }}
+	cmd.AddCommand(tunnelProviderStatusCommand(provider), tunnelProviderStartCommand(provider), tunnelProviderStopCommand(provider))
 	return cmd
 }
 
-func tunnelCFStatusCommand() *cobra.Command {
-	return &cobra.Command{Use: "status [mcp|admin|all]", Short: "Show Cloudflare Quick Tunnel status", Args: cobra.MaximumNArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+func tunnelProviderStatusCommand(provider string) *cobra.Command {
+	return &cobra.Command{Use: "status [mcp|admin|all]", Short: "Show tunnel provider status", Args: cobra.MaximumNArgs(1), ValidArgsFunction: completeStatic("mcp", "admin", "all"), RunE: func(cmd *cobra.Command, args []string) error {
 		target := "all"
 		if len(args) == 1 {
-			parsed, err := cftunnelplugin.ParseTarget(args[0])
-			if err != nil {
-				return err
-			}
-			target = parsed
+			target = args[0]
 		}
-		cfg, err := config.Load()
-		if err != nil {
-			return err
-		}
-		var live *runtimecontrol.CFTunnelStatus
-		status, err := requestRuntimeStatus(cmd.Context())
-		if err == nil {
-			live = status.CFTunnel
-		} else if !runtimecontrol.IsUnavailable(err) {
-			return err
-		}
-		renderCFTunnelStatus(cmd.OutOrStdout(), cfg, live, target)
-		return nil
+		return runTunnelProviderStatus(cmd, provider, target)
 	}}
 }
 
-func tunnelCFStartCommand() *cobra.Command {
-	return &cobra.Command{Use: "start <mcp|admin|all>", Short: "Start a Cloudflare Quick Tunnel for MCP and/or Admin HTTP", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := config.Load()
-		if err != nil {
-			return err
-		}
-		if err := application.StartCFTunnel(cmd.Context(), cfg, args[0]); err != nil {
-			return err
-		}
-		commandLogger(cmd).Success("TUNNEL", "CF Tunnel start requested", "target", strings.ToLower(strings.TrimSpace(args[0])))
-		return nil
+func tunnelProviderStartCommand(provider string) *cobra.Command {
+	return &cobra.Command{Use: "start <mcp|admin|all>", Short: "Start a tunnel provider target", Args: cobra.ExactArgs(1), ValidArgsFunction: completeStatic("mcp", "admin", "all"), RunE: func(cmd *cobra.Command, args []string) error {
+		return runTunnelProviderStart(cmd, provider, args[0])
 	}}
 }
 
-func tunnelCFStopCommand() *cobra.Command {
-	return &cobra.Command{Use: "stop <mcp|admin|all>", Short: "Stop a Cloudflare Quick Tunnel", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-		if err := application.StopCFTunnel(cmd.Context(), args[0]); err != nil {
+func tunnelProviderStopCommand(provider string) *cobra.Command {
+	return &cobra.Command{Use: "stop <mcp|admin|all>", Short: "Stop a tunnel provider target", Args: cobra.ExactArgs(1), ValidArgsFunction: completeStatic("mcp", "admin", "all"), RunE: func(cmd *cobra.Command, args []string) error {
+		return runTunnelProviderStop(cmd, provider, args[0])
+	}}
+}
+
+func runTunnelProviderDispatch(cmd *cobra.Command, args []string) error {
+	if len(args) == 0 {
+		return cmd.Help()
+	}
+	provider := args[0]
+	if reservedTunnelCommand(provider) {
+		return fmt.Errorf("unknown command %q for %q", provider, cmd.CommandPath())
+	}
+	if len(args) == 1 {
+		if _, err := application.LookupTunnelProvider(provider); err != nil {
 			return err
 		}
-		commandLogger(cmd).Success("TUNNEL", "CF Tunnel stop requested", "target", strings.ToLower(strings.TrimSpace(args[0])))
-		return nil
-	}}
+		return fmt.Errorf("usage: cgm tunnel %s status|start|stop", provider)
+	}
+	return runTunnelProviderAction(cmd, provider, args[1], args[2:])
+}
+
+func runTunnelProviderAction(cmd *cobra.Command, provider, action string, rest []string) error {
+	switch strings.ToLower(strings.TrimSpace(action)) {
+	case "status":
+		target := "all"
+		if len(rest) > 0 {
+			target = rest[0]
+		}
+		return runTunnelProviderStatus(cmd, provider, target)
+	case "start":
+		if len(rest) != 1 {
+			return fmt.Errorf("usage: cgm tunnel %s start <mcp|admin|all>", provider)
+		}
+		return runTunnelProviderStart(cmd, provider, rest[0])
+	case "stop":
+		if len(rest) != 1 {
+			return fmt.Errorf("usage: cgm tunnel %s stop <mcp|admin|all>", provider)
+		}
+		return runTunnelProviderStop(cmd, provider, rest[0])
+	default:
+		return fmt.Errorf("unknown tunnel provider action %q", action)
+	}
+}
+
+func runTunnelProviderStatus(cmd *cobra.Command, provider, target string) error {
+	if _, err := application.LookupTunnelProvider(provider); err != nil {
+		return err
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	var runtime runtimecontrol.RuntimeStatus
+	status, err := requestRuntimeStatus(cmd.Context())
+	if err == nil {
+		runtime = status
+	} else if !runtimecontrol.IsUnavailable(err) {
+		return err
+	}
+	item, ok := tunnelProviderFromRuntime(cfg, runtime, provider)
+	if !ok {
+		configured, confErr := application.ConfiguredTunnelProviderStatus(cfg, provider)
+		if confErr != nil {
+			return confErr
+		}
+		item = configured
+	}
+	renderTunnelProviderStatus(cmd.OutOrStdout(), item, target)
+	return nil
+}
+
+func runTunnelProviderStart(cmd *cobra.Command, provider, target string) error {
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	if err := application.StartTunnelProvider(cmd.Context(), cfg, provider, target); err != nil {
+		return err
+	}
+	commandLogger(cmd).Success("TUNNEL", "Tunnel provider start requested", "provider", provider, "target", strings.ToLower(strings.TrimSpace(target)))
+	return nil
+}
+
+func runTunnelProviderStop(cmd *cobra.Command, provider, target string) error {
+	if err := application.StopTunnelProvider(cmd.Context(), provider, target); err != nil {
+		return err
+	}
+	commandLogger(cmd).Success("TUNNEL", "Tunnel provider stop requested", "provider", provider, "target", strings.ToLower(strings.TrimSpace(target)))
+	return nil
+}
+
+func tunnelProviderFromRuntime(cfg config.Config, runtime runtimecontrol.RuntimeStatus, provider string) (runtimecontrol.TunnelProviderStatus, bool) {
+	for _, item := range application.MergeTunnelProviderStatus(cfg, runtime) {
+		if item.Provider == provider {
+			return item, true
+		}
+	}
+	return runtimecontrol.TunnelProviderStatus{}, false
+}
+
+func renderTunnelProviderStatus(out io.Writer, item runtimecontrol.TunnelProviderStatus, target string) {
+	name := strings.TrimSpace(item.Name)
+	if name == "" {
+		name = item.Provider
+	}
+	fmt.Fprintf(out, "%s  ephemeral Quick Tunnels, not Secure MCP\n", name)
+	for _, targetItem := range item.Targets {
+		if target != "all" && targetItem.Target != target {
+			continue
+		}
+		fmt.Fprintf(out, "  %-5s  %s\n", targetItem.Target, targetItem.Line())
+	}
 }
 
 func renderCFTunnelStatus(out io.Writer, cfg config.Config, live *runtimecontrol.CFTunnelStatus, target string) {
-	fmt.Fprintln(out, "CF Tunnel  ephemeral Quick Tunnels, not Secure MCP")
-	for _, item := range cfTunnelStatusItems(cfg, live) {
-		if target != "all" && item.Target != target {
-			continue
-		}
-		fmt.Fprintf(out, "  %-5s  %s\n", item.Target, cfTunnelStatusLine(item))
+	runtime := runtimecontrol.RuntimeStatus{CFTunnel: live}
+	item, ok := tunnelProviderFromRuntime(cfg, runtime, "cf")
+	if !ok {
+		item = live.AsProvider()
 	}
-}
-
-func cfTunnelStatusItems(cfg config.Config, live *runtimecontrol.CFTunnelStatus) []cftunnelplugin.TargetStatus {
-	if live != nil {
-		items := make([]cftunnelplugin.TargetStatus, 0, len(live.Targets))
-		for _, item := range live.Targets {
-			items = append(items, cftunnelplugin.TargetStatus{
-				Target: item.Target, Desired: item.Desired, Running: item.Running, Ready: item.Ready, Restarting: item.Restarting,
-				URL: item.URL, Origin: item.Origin, LastError: item.LastError,
-			})
-		}
-		if len(items) > 0 {
-			return items
-		}
-	}
-	snap := application.CFTunnelSnapshot(cfg)
-	return []cftunnelplugin.TargetStatus{
-		cfTunnelSnapshotItem(cftunnelplugin.TargetMCP, snap.PluginEnabled && snap.DesiredMCP, snap.MCP),
-		cfTunnelSnapshotItem(cftunnelplugin.TargetAdmin, snap.PluginEnabled && snap.DesiredAdmin, snap.Admin),
-	}
-}
-
-func cfTunnelSnapshotItem(target string, desired bool, endpoint cftunnelplugin.Endpoint) cftunnelplugin.TargetStatus {
-	item := cftunnelplugin.TargetStatus{Target: target, Desired: desired}
-	if endpoint.AuthErr != nil && desired {
-		item.LastError = endpoint.AuthErr.Error()
-	}
-	return item
-}
-
-func cfTunnelStatusLine(item cftunnelplugin.TargetStatus) string {
-	return item.Line()
+	renderTunnelProviderStatus(out, item, target)
 }
 
 func watchCFTunnel(log *logger.Logger) {
 	pluginhost.SetRuntimeObserver(func(event cftunnelplugin.LifecycleEvent) {
-		logCFTunnelLifecycle(log, event)
+		logTunnelProviderLifecycle(log, "cf", string(event.State), event.Target, event.URL, event.Error)
 	})
 }
 
 func logCFTunnelLifecycle(log *logger.Logger, event cftunnelplugin.LifecycleEvent) {
+	logTunnelProviderLifecycle(log, "cf", string(event.State), event.Target, event.URL, event.Error)
+}
+
+func logTunnelProviderLifecycle(log *logger.Logger, provider, state, target, url, errText string) {
 	if log == nil {
 		return
 	}
-	fields := []logger.Field{logger.WithVerbose("target", event.Target)}
-	if event.URL != "" {
-		fields = append(fields, logger.WithVerbose("url", event.URL))
+	name := provider + " tunnel"
+	if provider == "cf" {
+		name = "CF Tunnel"
 	}
-	switch event.State {
-	case cftunnelplugin.LifecycleConnecting:
-		log.Action("TUNNEL", "cf-tunnel.connecting", "Connecting CF Tunnel", fields...)
-	case cftunnelplugin.LifecycleReconnecting:
-		log.Action("TUNNEL", "cf-tunnel.reconnecting", "Reconnecting CF Tunnel", fields...)
-	case cftunnelplugin.LifecycleReady:
-		log.Ready("TUNNEL", "cf-tunnel.ready", "CF Tunnel ready", fields...)
-	case cftunnelplugin.LifecycleDegraded:
+	fields := []logger.Field{logger.WithVerbose("target", target)}
+	if url != "" {
+		fields = append(fields, logger.WithVerbose("url", url))
+	}
+	switch state {
+	case "connecting":
+		log.Action("TUNNEL", provider+"-tunnel.connecting", "Connecting "+name, fields...)
+	case "reconnecting":
+		log.Action("TUNNEL", provider+"-tunnel.reconnecting", "Reconnecting "+name, fields...)
+	case "ready":
+		log.Ready("TUNNEL", provider+"-tunnel.ready", name+" ready", fields...)
+	case "degraded":
 		var eventErr error
-		if event.Error != "" {
-			eventErr = errors.New(event.Error)
+		if errText != "" {
+			eventErr = errors.New(errText)
 		}
-		log.Warning("TUNNEL", "cf-tunnel.degraded", "CF Tunnel degraded", eventErr, fields...)
-	case cftunnelplugin.LifecycleStopped:
-		log.Ready("TUNNEL", "cf-tunnel.stopped", "CF Tunnel stopped", fields...)
+		log.Warning("TUNNEL", provider+"-tunnel.degraded", name+" degraded", eventErr, fields...)
+	case "stopped":
+		log.Ready("TUNNEL", provider+"-tunnel.stopped", name+" stopped", fields...)
 	}
 }

@@ -120,6 +120,40 @@ type TunnelProviderTargetStatus struct {
 	Ephemeral  bool   `json:"ephemeral,omitempty"`
 }
 
+func (s TunnelProviderTargetStatus) Line() string {
+	switch {
+	case s.Restarting:
+		if s.LastError != "" {
+			return "reconnecting · " + s.LastError
+		}
+		return "reconnecting"
+	case s.LastError != "":
+		return "degraded · " + s.LastError
+	case s.Ready && s.URL != "":
+		return s.URL + " · ephemeral"
+	case s.Running:
+		return "connecting"
+	case s.Desired:
+		return "offline"
+	default:
+		return "disabled"
+	}
+}
+
+func (s *CFTunnelStatus) AsProvider() TunnelProviderStatus {
+	if s == nil {
+		return TunnelProviderStatus{Provider: "cf", Name: "CF Tunnel", PluginID: "cf-tunnel"}
+	}
+	targets := make([]TunnelProviderTargetStatus, 0, len(s.Targets))
+	for _, item := range s.Targets {
+		targets = append(targets, TunnelProviderTargetStatus{
+			Target: item.Target, Desired: item.Desired, Running: item.Running, Ready: item.Ready, Restarting: item.Restarting,
+			URL: item.URL, Origin: item.Origin, LastError: item.LastError, Ephemeral: item.URL != "",
+		})
+	}
+	return TunnelProviderStatus{Provider: "cf", Name: "CF Tunnel", PluginID: "cf-tunnel", Enabled: s.PluginEnabled, Targets: targets}
+}
+
 type CFTunnelStatus struct {
 	PluginEnabled bool                   `json:"plugin_enabled"`
 	Targets       []CFTunnelTargetStatus `json:"targets,omitempty"`

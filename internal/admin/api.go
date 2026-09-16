@@ -98,6 +98,8 @@ func New(api API) http.Handler {
 	mux.HandleFunc("/api/upstream/", api.handleUpstream)
 	mux.HandleFunc("/api/tunnels", api.handleLocalTunnels)
 	mux.HandleFunc("/api/tunnels/", api.handleLocalTunnel)
+	mux.HandleFunc("/api/tunnel-providers", api.handleTunnelProviders)
+	mux.HandleFunc("/api/tunnel-providers/", api.handleTunnelProvider)
 	mux.HandleFunc("/api/tunnel-admins", api.handleTunnelAdmins)
 	mux.HandleFunc("/api/tunnel-admins/", api.handleTunnelAdmin)
 	mux.HandleFunc("/api/managed-tunnels", api.handleManagedTunnelCollection)

@@ -14,6 +14,7 @@ import (
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
+	"go.mewis.me/chatgpt-mcp/internal/application"
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
@@ -161,7 +162,7 @@ func runStatus(cmd *cobra.Command, _ []string) (runErr error) {
 func renderStatusText(out io.Writer, snapshot statusSnapshot, verbose bool) {
 	renderStatusBaseText(out, snapshot, verbose)
 	renderStatusTunnel(out, snapshot, verbose)
-	renderStatusCFTunnel(out, snapshot)
+	renderStatusTunnelProviders(out, snapshot)
 }
 
 func renderStatusBaseText(out io.Writer, snapshot statusSnapshot, verbose bool) {
@@ -309,26 +310,41 @@ func renderStatusTunnelBody(out io.Writer, snapshot statusSnapshot, verbose bool
 	}
 }
 
-func renderStatusCFTunnel(out io.Writer, snapshot statusSnapshot) {
-	var live *runtimecontrol.CFTunnelStatus
-	if snapshot.Running {
-		live = snapshot.Runtime.CFTunnel
+func renderStatusTunnelProviders(out io.Writer, snapshot statusSnapshot) {
+	runtime := snapshot.Runtime
+	if !snapshot.Running {
+		runtime = runtimecontrol.RuntimeStatus{}
 	}
-	items := cfTunnelStatusItems(snapshot.Config, live)
-	interesting := live != nil && live.PluginEnabled
-	for _, item := range items {
-		if item.Desired || item.Running || item.Ready || item.Restarting || item.LastError != "" {
-			interesting = true
+	for _, item := range application.MergeTunnelProviderStatus(snapshot.Config, runtime) {
+		if !tunnelProviderInteresting(item) {
+			continue
+		}
+		name := strings.TrimSpace(item.Name)
+		if name == "" {
+			name = item.Provider
+		}
+		fmt.Fprintln(out, "\n"+cliHeading(name))
+		statusField(out, "note", "ephemeral Quick Tunnels, not Secure MCP")
+		for _, target := range item.Targets {
+			statusField(out, target.Target, target.Line())
 		}
 	}
-	if !interesting {
-		return
+}
+
+func renderStatusCFTunnel(out io.Writer, snapshot statusSnapshot) {
+	renderStatusTunnelProviders(out, snapshot)
+}
+
+func tunnelProviderInteresting(item runtimecontrol.TunnelProviderStatus) bool {
+	if item.Enabled {
+		return true
 	}
-	fmt.Fprintln(out, "\n"+cliHeading("CF Tunnel"))
-	statusField(out, "note", "ephemeral Quick Tunnels, not Secure MCP")
-	for _, item := range items {
-		statusField(out, item.Target, cfTunnelStatusLine(item))
+	for _, target := range item.Targets {
+		if target.Desired || target.Running || target.Ready || target.Restarting || target.LastError != "" {
+			return true
+		}
 	}
+	return false
 }
 
 func statusTunnelCollection(snapshot statusSnapshot) (runtimecontrol.TunnelSummary, []runtimecontrol.TunnelRuntimeStatus) {

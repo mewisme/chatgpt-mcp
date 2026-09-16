@@ -17,7 +17,6 @@ import (
 	managed "go.mewis.me/chatgpt-mcp/internal/service"
 	"go.mewis.me/chatgpt-mcp/internal/tui/component"
 	updatepkg "go.mewis.me/chatgpt-mcp/internal/update"
-	cftunnelplugin "go.mewis.me/chatgpt-mcp/plugins/cf-tunnel"
 )
 
 const systemOperationTimeout = 2 * time.Minute
@@ -845,9 +844,10 @@ func (page *RuntimePage) runtimeItem() runtimeItem {
 			mcpHTTP = endpoint(status.ServerPort, "/mcp")
 		}
 		description = fmt.Sprintf("%s · pid %d · %s", state, status.PID, mode)
-		fields = [][2]string{{"State", state}, {"PID", fmt.Sprint(status.PID)}, {"Session", status.RunID}, {"Mode", mode}, {"Service", status.ServiceID}, {"Started", timeLabel(status.StartedAt)}, {"MCP HTTP", mcpHTTP}, {"Admin", adminEndpoint(status)}, {"Exposure", string(status.Exposure)}, {"Tunnel", runtimeTunnelStatus(status)}, {"CF Tunnel", runtimeCFTunnelStatus(status)}}
-	} else if page.runtime.Status.CFTunnel != nil {
-		fields = append(fields, [2]string{"CF Tunnel", runtimeCFTunnelStatus(page.runtime.Status)})
+		fields = [][2]string{{"State", state}, {"PID", fmt.Sprint(status.PID)}, {"Session", status.RunID}, {"Mode", mode}, {"Service", status.ServiceID}, {"Started", timeLabel(status.StartedAt)}, {"MCP HTTP", mcpHTTP}, {"Admin", adminEndpoint(status)}, {"Exposure", string(status.Exposure)}, {"Tunnel", runtimeTunnelStatus(status)}}
+		fields = append(fields, runtimeProviderFields(status)...)
+	} else {
+		fields = append(fields, runtimeProviderFields(page.runtime.Status)...)
 	}
 	return runtimeItem{row: component.Row{ID: "runtime", Title: "MCP runtime process", Description: description, Search: "runtime process status service server"}, detailTitle: "MCP runtime process", detail: detailFields(fields...)}
 }
@@ -1201,21 +1201,32 @@ func valueInt(value int) string {
 	return fmt.Sprint(value)
 }
 
-func runtimeCFTunnelStatus(status runtimecontrol.RuntimeStatus) string {
-	cf := status.CFTunnel
-	if cf == nil {
-		return "disabled"
+func runtimeProviderFields(status runtimecontrol.RuntimeStatus) [][2]string {
+	providers := status.TunnelProviders
+	if len(providers) == 0 && status.CFTunnel != nil {
+		providers = []runtimecontrol.TunnelProviderStatus{status.CFTunnel.AsProvider()}
 	}
-	parts := make([]string, 0, len(cf.Targets))
-	for _, item := range cf.Targets {
-		line := cftunnelplugin.TargetStatus{
-			Target: item.Target, Desired: item.Desired, Running: item.Running, Ready: item.Ready, Restarting: item.Restarting,
-			URL: item.URL, Origin: item.Origin, LastError: item.LastError,
-		}.Line()
-		parts = append(parts, item.Target+" "+line)
+	if len(providers) == 0 {
+		return nil
+	}
+	fields := make([][2]string, 0, len(providers))
+	for _, item := range providers {
+		name := strings.TrimSpace(item.Name)
+		if name == "" {
+			name = item.Provider
+		}
+		fields = append(fields, [2]string{name, runtimeProviderStatusLine(item)})
+	}
+	return fields
+}
+
+func runtimeProviderStatusLine(item runtimecontrol.TunnelProviderStatus) string {
+	parts := make([]string, 0, len(item.Targets))
+	for _, target := range item.Targets {
+		parts = append(parts, target.Target+" "+target.Line())
 	}
 	if len(parts) == 0 {
-		if cf.PluginEnabled {
+		if item.Enabled {
 			return "enabled"
 		}
 		return "disabled"

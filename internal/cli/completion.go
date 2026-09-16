@@ -253,6 +253,45 @@ func completeStatic(values ...string) cobra.CompletionFunc {
 	}
 }
 
+func completeTunnelDispatch(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	prepareCompletionConfigRoot(cmd)
+	switch len(args) {
+	case 0:
+		return completeTunnelProviderNames(toComplete)
+	case 1:
+		return filterCompletions([]string{"status", "start", "stop"}, toComplete), cobra.ShellCompDirectiveNoFileComp
+	case 2:
+		if args[1] == "status" || args[1] == "start" || args[1] == "stop" {
+			return filterCompletions([]string{"mcp", "admin", "all"}, toComplete), cobra.ShellCompDirectiveNoFileComp
+		}
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	default:
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+}
+
+func completeTunnelProviderAction(_ *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	switch len(args) {
+	case 0:
+		return filterCompletions([]string{"status", "start", "stop"}, toComplete), cobra.ShellCompDirectiveNoFileComp
+	case 1:
+		if args[0] == "status" || args[0] == "start" || args[0] == "stop" {
+			return filterCompletions([]string{"mcp", "admin", "all"}, toComplete), cobra.ShellCompDirectiveNoFileComp
+		}
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	default:
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+}
+
+func completeTunnelProviderNames(toComplete string) ([]string, cobra.ShellCompDirective) {
+	values := make([]string, 0)
+	for _, name := range application.KnownTunnelProviderNames() {
+		values = append(values, name+"\ttunnel provider")
+	}
+	return filterCompletions(values, toComplete), cobra.ShellCompDirectiveNoFileComp
+}
+
 func completePluginID(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	if len(args) > 0 {
 		return nil, cobra.ShellCompDirectiveNoFileComp

@@ -57,6 +57,7 @@ import {
   type ManagedTunnelUpdateRequest,
   type TunnelAdminProfile,
   type TunnelAdminProfileRequest,
+  type TunnelProvider,
 } from "@/lib/api"
 
 type AdminScopeKind = "organization" | "workspace" | "tenant"
@@ -66,6 +67,7 @@ export function TunnelPage() {
   const [locals, setLocals] = useState<LocalTunnel[]>([])
   const [admins, setAdmins] = useState<TunnelAdminProfile[]>([])
   const [managed, setManaged] = useState<ManagedTunnel[]>([])
+  const [providers, setProviders] = useState<TunnelProvider[]>([])
   const [managedProfile, setManagedProfile] = useState("all")
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState("")
@@ -76,14 +78,16 @@ export function TunnelPage() {
   async function refresh(profile = managedProfile) {
     setRefreshing(true)
     try {
-      const [nextLocals, nextAdmins, nextManaged] = await Promise.all([
+      const [nextLocals, nextAdmins, nextManaged, nextProviders] = await Promise.all([
         adminApi.localTunnels(),
         adminApi.tunnelAdminProfiles(),
         adminApi.managedTunnelCollection(profile === "all" ? "" : profile),
+        adminApi.tunnelProviders(),
       ])
       setLocals(nextLocals)
       setAdmins(nextAdmins)
       setManaged(nextManaged)
+      setProviders(nextProviders)
       setError("")
     } catch (value) {
       setError(errorText(value))
@@ -99,12 +103,14 @@ export function TunnelPage() {
       adminApi.localTunnels(),
       adminApi.tunnelAdminProfiles(),
       adminApi.managedTunnelCollection(),
+      adminApi.tunnelProviders(),
     ])
-      .then(([nextLocals, nextAdmins, nextManaged]) => {
+      .then(([nextLocals, nextAdmins, nextManaged, nextProviders]) => {
         if (!active) return
         setLocals(nextLocals)
         setAdmins(nextAdmins)
         setManaged(nextManaged)
+        setProviders(nextProviders as TunnelProvider[])
         setLoading(false)
       })
       .catch((value) => {
@@ -151,6 +157,29 @@ export function TunnelPage() {
       }
       setMessage(
         `Tunnel ${id} ${action === "detach" ? "detached" : `${action}d`}.`
+      )
+      setError("")
+    } catch (value) {
+      setError(errorText(value))
+      setMessage("")
+    } finally {
+      setBusy("")
+    }
+  }
+
+  async function providerAction(provider: string, action: "start" | "stop") {
+    setBusy(`${action}:${provider}`)
+    try {
+      const item =
+        action === "start"
+          ? await adminApi.startTunnelProvider(provider)
+          : await adminApi.stopTunnelProvider(provider)
+      setProviders((items) => [
+        ...items.filter((current) => current.provider !== item.provider),
+        item,
+      ])
+      setMessage(
+        `${item.name || item.provider} ${action} requested.`
       )
       setError("")
     } catch (value) {
@@ -395,6 +424,10 @@ export function TunnelPage() {
               <Power />
               Local instances
             </TabsTrigger>
+            <TabsTrigger value="providers">
+              <Network />
+              Providers
+            </TabsTrigger>
             <TabsTrigger value="admin">
               <ShieldCheck />
               Admin profiles
@@ -412,6 +445,14 @@ export function TunnelPage() {
               onAction={localAction}
               onAttach={attachLocal}
               onUpdate={updateLocal}
+            />
+          </TabsContent>
+          <TabsContent value="providers">
+            <TunnelProvidersPanel
+              items={providers}
+              busy={busy}
+              onStart={(provider) => providerAction(provider, "start")}
+              onStop={(provider) => providerAction(provider, "stop")}
             />
           </TabsContent>
           <TabsContent value="admin">
@@ -445,6 +486,88 @@ export function TunnelPage() {
           </TabsContent>
         </Tabs>
       )}
+    </div>
+  )
+}
+
+function TunnelProvidersPanel({
+  items,
+  busy,
+  onStart,
+  onStop,
+}: {
+  items: TunnelProvider[]
+  busy: string
+  onStart: (provider: string) => Promise<void>
+  onStop: (provider: string) => Promise<void>
+}) {
+  if (!items.length) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Tunnel providers</CardTitle>
+          <CardDescription>
+            Installed runtime plugins that expose MCP or Admin HTTP through a
+            generic tunnel capability.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">
+            No tunnel providers are installed. Install one with{" "}
+            <code>cgm plugin install &lt;id&gt;</code>.
+          </p>
+        </CardContent>
+      </Card>
+    )
+  }
+  return (
+    <div className="grid gap-4">
+      {items.map((item) => (
+        <Card key={item.provider}>
+          <CardHeader>
+            <CardTitle>{item.name || item.provider}</CardTitle>
+            <CardDescription>
+              {item.plugin_id || item.provider}
+              {item.enabled ? " · enabled" : " · disabled"}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            {(item.targets ?? []).map((target) => (
+              <div key={target.target} className="flex justify-between gap-4">
+                <span className="font-medium">{target.target}</span>
+                <span className="text-muted-foreground">
+                  {target.url ||
+                    target.last_error ||
+                    (target.ready
+                      ? "ready"
+                      : target.running
+                        ? "connecting"
+                        : target.desired
+                          ? "offline"
+                          : "disabled")}
+                </span>
+              </div>
+            ))}
+          </CardContent>
+          <CardFooter className="gap-2">
+            <Button
+              size="sm"
+              disabled={busy !== ""}
+              onClick={() => void onStart(item.provider)}
+            >
+              Start
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={busy !== ""}
+              onClick={() => void onStop(item.provider)}
+            >
+              Stop
+            </Button>
+          </CardFooter>
+        </Card>
+      ))}
     </div>
   )
 }

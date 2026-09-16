@@ -388,6 +388,24 @@ export type ManagedTunnel = {
   metadata: TunnelMetadata
   admin_profiles: string[]
 }
+export type TunnelProviderTarget = {
+  target: string
+  desired: boolean
+  running: boolean
+  ready: boolean
+  restarting?: boolean
+  url?: string
+  origin?: string
+  last_error?: string
+  ephemeral?: boolean
+}
+export type TunnelProvider = {
+  provider: string
+  name?: string
+  plugin_id?: string
+  enabled: boolean
+  targets?: TunnelProviderTarget[]
+}
 export type ManagedTunnelAttachRequest = {
   runtime_api_key?: string
   auto_generate_runtime_key?: boolean
@@ -636,6 +654,17 @@ export const adminApi = {
       `/api/upstream/${encodeURIComponent(id)}/tools?refresh=${refresh}`
     ),
   localTunnels: () => api<LocalTunnel[]>("/api/tunnels"),
+  tunnelProviders: () => api<TunnelProvider[]>("/api/tunnel-providers"),
+  startTunnelProvider: (provider: string, target = "all") =>
+    api<TunnelProvider>(
+      `/api/tunnel-providers/${encodeURIComponent(provider)}/start`,
+      { method: "POST", body: JSON.stringify({ target }) }
+    ),
+  stopTunnelProvider: (provider: string, target = "all") =>
+    api<TunnelProvider>(
+      `/api/tunnel-providers/${encodeURIComponent(provider)}/stop`,
+      { method: "POST", body: JSON.stringify({ target }) }
+    ),
   attachLocalTunnel: (request: LocalTunnelRequest) =>
     api<LocalTunnel>("/api/tunnels", {
       method: "POST",

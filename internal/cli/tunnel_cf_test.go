@@ -10,6 +10,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
 	"go.mewis.me/chatgpt-mcp/internal/runtimecontrol"
+	"go.mewis.me/chatgpt-mcp/internal/testutil"
 	cftunnelplugin "go.mewis.me/chatgpt-mcp/plugins/cf-tunnel"
 )
 
@@ -57,7 +58,20 @@ func TestLogCFTunnelLifecycleRedactsSecrets(t *testing.T) {
 	}
 }
 
+func TestTunnelProviderMissingInstallHint(t *testing.T) {
+	testutil.UseConfigRoot(t, t.TempDir())
+	cmd := tunnelCommand()
+	cmd.SetArgs([]string{"missing", "status"})
+	var errBuf bytes.Buffer
+	cmd.SetErr(&errBuf)
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "not installed") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
 func TestRenderStatusCFTunnelOmitsWhenDisabled(t *testing.T) {
+	testutil.UseConfigRoot(t, t.TempDir())
 	var out bytes.Buffer
 	renderStatusCFTunnel(&out, statusSnapshot{Config: config.Default()})
 	if out.Len() != 0 {

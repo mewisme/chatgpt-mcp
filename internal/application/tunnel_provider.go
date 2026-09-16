@@ -302,6 +302,145 @@ func providesTunnel(capabilities []pluginpkg.Capability, want pluginpkg.Capabili
 	return false
 }
 
+func ConfiguredTunnelProviderStatus(cfg config.Config, provider string) (runtimecontrol.TunnelProviderStatus, error) {
+	ref, err := LookupTunnelProvider(provider)
+	if err != nil {
+		return runtimecontrol.TunnelProviderStatus{}, err
+	}
+	service, err := NewPluginService()
+	if err != nil {
+		return runtimecontrol.TunnelProviderStatus{}, err
+	}
+	schema := tunnelProviderSettingsSchema(service, ref.PluginID)
+	values := map[string]any{}
+	if loaded, err := service.Manager.SettingsStore().Get(schema, ref.PluginID); err == nil {
+		values = loaded
+	}
+	targets := make([]runtimecontrol.TunnelProviderTargetStatus, 0, 2)
+	for _, id := range []string{"mcp", "admin"} {
+		item := runtimecontrol.TunnelProviderTargetStatus{Target: id, Desired: ref.Enabled && pluginSettingBool(values, id)}
+		if item.Desired {
+			kind, kindErr := originKindForTarget(id, nil)
+			if kindErr != nil {
+				item.LastError = kindErr.Error()
+			} else if _, originErr := tunnelprovider.ResolveOrigin(cfg, kind); originErr != nil {
+				item.LastError = originErr.Error()
+			}
+		}
+		targets = append(targets, item)
+	}
+	return runtimecontrol.TunnelProviderStatus{Provider: ref.Provider, Name: ref.Name, PluginID: string(ref.PluginID), Enabled: ref.Enabled, Targets: targets}, nil
+}
+
+func ListConfiguredTunnelProviders(cfg config.Config) []runtimecontrol.TunnelProviderStatus {
+	seen := map[string]struct{}{}
+	out := make([]runtimecontrol.TunnelProviderStatus, 0)
+	add := func(provider string) {
+		provider = strings.TrimSpace(provider)
+		if provider == "" {
+			return
+		}
+		if _, ok := seen[provider]; ok {
+			return
+		}
+		item, err := ConfiguredTunnelProviderStatus(cfg, provider)
+		if err != nil {
+			return
+		}
+		seen[provider] = struct{}{}
+		out = append(out, item)
+	}
+	if refs, err := ListTunnelProviders(); err == nil {
+		for _, ref := range refs {
+			add(ref.Provider)
+		}
+	}
+	add("cf")
+	return out
+}
+
+func MergeTunnelProviderStatus(cfg config.Config, runtime runtimecontrol.RuntimeStatus) []runtimecontrol.TunnelProviderStatus {
+	if len(runtime.TunnelProviders) > 0 {
+		return runtime.TunnelProviders
+	}
+	if runtime.CFTunnel != nil {
+		return []runtimecontrol.TunnelProviderStatus{runtime.CFTunnel.AsProvider()}
+	}
+	return ListConfiguredTunnelProviders(cfg)
+}
+
+func MarketplaceTunnelProviders() []string {
+	service, err := NewPluginService()
+	if err != nil || service == nil || service.Manager == nil {
+		return nil
+	}
+	snapshot, err := service.Manager.RegistryClient.LoadCached(pluginpkg.OfficialRegistry(), 24*time.Hour)
+	if err != nil {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	names := make([]string, 0)
+	for _, entry := range snapshot.Index.Plugins {
+		for _, capability := range entry.Provides {
+			if !strings.HasPrefix(string(capability), tunnelprovider.Prefix) {
+				continue
+			}
+			name := tunnelprovider.ProviderName(string(capability))
+			if name == "" {
+				continue
+			}
+			if _, ok := seen[name]; ok {
+				continue
+			}
+			seen[name] = struct{}{}
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+func KnownTunnelProviderNames() []string {
+	seen := map[string]struct{}{"cf": {}}
+	names := []string{"cf"}
+	add := func(name string) {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			return
+		}
+		if _, ok := seen[name]; ok {
+			return
+		}
+		seen[name] = struct{}{}
+		names = append(names, name)
+	}
+	if refs, err := ListTunnelProviders(); err == nil {
+		for _, ref := range refs {
+			add(ref.Provider)
+		}
+	}
+	for _, name := range MarketplaceTunnelProviders() {
+		add(name)
+	}
+	return names
+}
+
+func tunnelProviderSettingsSchema(service *PluginService, id pluginpkg.PluginID) pluginpkg.SettingsSchema {
+	if service != nil && service.Manager != nil {
+		if schema, err := service.Manager.SettingsSchema(id); err == nil && len(schema.Fields) > 0 {
+			return schema
+		}
+	}
+	return pluginpkg.SettingsSchema{Fields: []pluginpkg.SettingField{
+		{Key: "mcp", Kind: pluginpkg.FieldBool, Title: "Expose MCP HTTP", Default: false},
+		{Key: "admin", Kind: pluginpkg.FieldBool, Title: "Expose Admin HTTP", Default: false},
+	}}
+}
+
+func pluginSettingBool(values map[string]any, key string) bool {
+	value, _ := values[key].(bool)
+	return value
+}
+
 func missingProviderError(name string, service *PluginService) error {
 	result := ProviderNotInstalledError{Provider: name}
 	if service == nil || service.Manager == nil {

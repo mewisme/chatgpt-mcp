@@ -19,8 +19,24 @@ import (
 )
 
 func tunnelCommand() *cobra.Command {
-	cmd := &cobra.Command{Use: "tunnel", Short: "Manage OpenAI Secure MCP Tunnel instances"}
-	cmd.AddCommand(tunnelLocalListCommand(), tunnelCollectionStatusCommand(), tunnelAddCommand(), tunnelAttachCommand(), tunnelUpdateCommand(), tunnelDetachCommand(), tunnelLocalToggleCommand(true), tunnelLocalToggleCommand(false), tunnelStartCommand(), tunnelStopCommand(), tunnelCFCommand(), tunnelManagedCommand(), tunnelAdminProfilesCommand(), tunnelRunCommand())
+	cmd := &cobra.Command{
+		Use:               "tunnel",
+		Short:             "Manage OpenAI Secure MCP Tunnel instances and tunnel providers",
+		Args:              cobra.ArbitraryArgs,
+		ValidArgsFunction: completeTunnelDispatch,
+		RunE:              runTunnelProviderDispatch,
+	}
+	cmd.AddCommand(tunnelLocalListCommand(), tunnelCollectionStatusCommand(), tunnelAddCommand(), tunnelAttachCommand(), tunnelUpdateCommand(), tunnelDetachCommand(), tunnelLocalToggleCommand(true), tunnelLocalToggleCommand(false), tunnelStartCommand(), tunnelStopCommand(), tunnelProviderCommand("cf", "CF Tunnel"), tunnelManagedCommand(), tunnelAdminProfilesCommand(), tunnelRunCommand())
+	seen := map[string]struct{}{"cf": {}}
+	if refs, err := application.ListTunnelProviders(); err == nil {
+		for _, ref := range refs {
+			if _, ok := seen[ref.Provider]; ok || reservedTunnelCommand(ref.Provider) {
+				continue
+			}
+			seen[ref.Provider] = struct{}{}
+			cmd.AddCommand(tunnelProviderCommand(ref.Provider, ref.Name))
+		}
+	}
 	return cmd
 }
 

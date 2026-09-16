@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"go.mewis.me/chatgpt-mcp/internal/application"
@@ -12,7 +13,6 @@ import (
 	updatepkg "go.mewis.me/chatgpt-mcp/internal/update"
 	"go.mewis.me/chatgpt-mcp/internal/upstream"
 	"go.mewis.me/chatgpt-mcp/internal/version"
-	cftunnelplugin "go.mewis.me/chatgpt-mcp/plugins/cf-tunnel"
 )
 
 func (d *doctorState) upstreamChecks() []doctorCheck {
@@ -89,35 +89,45 @@ func (d *doctorState) checkTunnelCollection(ctx context.Context) doctorResult {
 }
 
 func (d *doctorState) checkCFTunnelMCP(ctx context.Context) doctorResult {
-	return checkCFTunnelTarget(application.CFTunnelSnapshot(d.cfg), cftunnelplugin.TargetMCP)
+	return d.checkTunnelProviderTarget("cf", "mcp", "MCP")
 }
 
 func (d *doctorState) checkCFTunnelAdmin(ctx context.Context) doctorResult {
-	return checkCFTunnelTarget(application.CFTunnelSnapshot(d.cfg), cftunnelplugin.TargetAdmin)
+	return d.checkTunnelProviderTarget("cf", "admin", "Admin")
 }
 
-func checkCFTunnelTarget(snap cftunnelplugin.Snapshot, target string) doctorResult {
-	desired := snap.DesiredMCP
-	endpoint := snap.MCP
-	label := "MCP"
-	if target == cftunnelplugin.TargetAdmin {
-		desired = snap.DesiredAdmin
-		endpoint = snap.Admin
-		label = "Admin"
+func (d *doctorState) checkTunnelProviderTarget(provider, target, label string) doctorResult {
+	if _, err := application.LookupTunnelProvider(provider); err != nil {
+		return doctorResult{Status: doctorSkip, Summary: "tunnel provider " + provider + " is not installed"}
 	}
-	if !snap.PluginEnabled && !desired {
-		return doctorResult{Status: doctorSkip, Summary: "CF Tunnel " + label + " is not enabled"}
+	status, err := application.ConfiguredTunnelProviderStatus(d.cfg, provider)
+	if err != nil {
+		return doctorResult{Status: doctorSkip, Summary: "tunnel provider " + provider + " status is unavailable", Error: redact.Text(err.Error())}
+	}
+	desired := false
+	lastError := ""
+	for _, candidate := range status.Targets {
+		if candidate.Target == target {
+			desired = candidate.Desired
+			lastError = candidate.LastError
+			break
+		}
+	}
+	name := strings.TrimSpace(status.Name)
+	if name == "" {
+		name = provider
+	}
+	if !status.Enabled && !desired {
+		return doctorResult{Status: doctorSkip, Summary: name + " " + label + " is not enabled"}
 	}
 	if !desired {
-		return doctorResult{Status: doctorSkip, Summary: "CF Tunnel " + label + " target is not desired"}
+		return doctorResult{Status: doctorSkip, Summary: name + " " + label + " target is not desired"}
 	}
-	if endpoint.AuthErr != nil {
-		return doctorResult{Status: doctorFail, Summary: "CF Tunnel " + label + " authentication prerequisite is missing", Error: redact.Text(endpoint.AuthErr.Error()), Hint: "configure Direct MCP HTTP and Admin authentication before exposing a public URL"}
+	if lastError != "" {
+		hint := "configure Direct MCP HTTP and Admin authentication before exposing a public URL"
+		return doctorResult{Status: doctorFail, Summary: name + " " + label + " prerequisite is missing", Error: redact.Text(lastError), Hint: hint}
 	}
-	if !endpoint.Ready {
-		return doctorResult{Status: doctorFail, Summary: "CF Tunnel " + label + " listener is not ready", Error: cftunnelplugin.ErrListenerNotReady.Error()}
-	}
-	return doctorResult{Status: doctorPass, Summary: "CF Tunnel " + label + " prerequisites are satisfied"}
+	return doctorResult{Status: doctorPass, Summary: name + " " + label + " prerequisites are satisfied"}
 }
 
 func (d *doctorState) checkUpdate(ctx context.Context) doctorResult {

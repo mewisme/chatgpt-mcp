@@ -192,7 +192,7 @@ func (page *RuntimePage) Update(message tea.Msg) (Model, tea.Cmd) {
 		} else {
 			page.notice = "Copied to clipboard"
 		}
-		return page, nil
+		return page, func() tea.Msg { return OperationResult("runtime.copy", "Runtime", page.notice, nil) }
 	}
 	if page.overlay == systemOverlayOperation {
 		if key, ok := message.(tea.KeyPressMsg); ok && key.String() == "esc" {
@@ -607,10 +607,18 @@ func (page *RuntimePage) finishOperation(msg systemOperationMsg) tea.Cmd {
 		page.editor.Accept()
 		page.installForm, page.updateForm = nil, nil
 		notice := page.notice
+		page.notice = ""
 		return tea.Batch(page.runtimeEditorParentNavigation(), func() tea.Msg { return OperationResult("runtime.update", "Runtime", notice, nil) })
 	}
 	page.installForm, page.updateForm = nil, nil
-	return page.loadCmd()
+	if msg.token != "" || msg.external != nil {
+		return page.loadCmd()
+	}
+	notice := page.notice
+	if msg.command == UpdateCheck || msg.command == UpdateApply {
+		page.notice = ""
+	}
+	return withOperation("runtime.update", "Runtime", notice, page.loadCmd())
 }
 
 func (page *RuntimePage) cancelOperation() {

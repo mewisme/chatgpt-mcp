@@ -422,7 +422,7 @@ func TestRuntimeCloseCancelsOperation(t *testing.T) {
 	}
 }
 
-func TestRuntimeUpdateOperationsUseInlineTitleNotice(t *testing.T) {
+func TestRuntimeUpdateOperationsUseOperationDialog(t *testing.T) {
 	page, _ := NewRuntime(t.Context())
 	for _, test := range []struct {
 		name string
@@ -435,15 +435,28 @@ func TestRuntimeUpdateOperationsUseInlineTitleNotice(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			page.operationID = test.msg.id
 			cmd := page.finishOperation(test.msg)
-			if !strings.Contains(page.notice, test.want) {
-				t.Fatalf("update title notice=%q", page.notice)
+			if page.notice != "" {
+				t.Fatalf("update left title notice=%q", page.notice)
 			}
 			if cmd == nil {
 				t.Fatal("update completion did not schedule reload")
 			}
-			view := page.View(100, 30)
-			if !strings.Contains(view, page.notice) {
-				t.Fatalf("update notice missing beside page title: %q", view)
+			found := false
+			msg := cmd()
+			if op, ok := msg.(OperationMsg); ok && strings.Contains(op.Message, test.want) {
+				found = true
+			} else if batch, ok := msg.(tea.BatchMsg); ok {
+				for _, item := range batch {
+					if item == nil {
+						continue
+					}
+					if op, ok := item().(OperationMsg); ok && strings.Contains(op.Message, test.want) {
+						found = true
+					}
+				}
+			}
+			if !found {
+				t.Fatalf("missing operation result for %q in %#v", test.want, msg)
 			}
 		})
 	}

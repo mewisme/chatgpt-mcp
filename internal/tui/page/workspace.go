@@ -261,11 +261,11 @@ func (page *WorkspacePage) Update(message tea.Msg) (Model, tea.Cmd) {
 	case workspaceCopyIDMsg:
 		if err := copyWorkspaceID(msg.ID); err != nil {
 			page.err = err
-		} else {
-			page.err = nil
-			page.notice = "Copied " + msg.ID
+			return page, func() tea.Msg { return OperationResult("workspace.copy", "Workspace", "", err) }
 		}
-		return page, nil
+		page.err = nil
+		page.notice = "Copied " + msg.ID
+		return page, func() tea.Msg { return OperationResult("workspace.copy", "Workspace", page.notice, nil) }
 	case workspaceRefreshDetailMsg:
 		page.err = page.syncDetail()
 		if page.err == nil {

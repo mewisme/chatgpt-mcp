@@ -150,7 +150,7 @@ func (page *TunnelInstancesPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		} else {
 			page.notice = "Copied command to clipboard"
 		}
-		return page, nil
+		return page, func() tea.Msg { return OperationResult("tunnel.copy", "Tunnel", page.notice, nil) }
 	case localTunnelResultMsg:
 		return page, page.finishCommand(msg)
 	case tea.KeyPressMsg:

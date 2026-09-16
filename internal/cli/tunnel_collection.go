@@ -283,7 +283,7 @@ func tunnelManagedDeleteCommand() *cobra.Command {
 
 func tunnelAdminProfilesCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "admin", Short: "Manage tunnel admin profiles"}
-	cmd.AddCommand(tunnelAdminListProfilesCommand(), tunnelAdminAddProfileCommand(), tunnelAdminVerifyProfileCommand(), tunnelAdminRemoveProfileCommand())
+	cmd.AddCommand(tunnelAdminListProfilesCommand(), tunnelAdminAddProfileCommand(), tunnelAdminUpdateProfileCommand(), tunnelAdminVerifyProfileCommand(), tunnelAdminRemoveProfileCommand())
 	return cmd
 }
 
@@ -323,6 +323,45 @@ func tunnelAdminAddProfileCommand() *cobra.Command {
 			return err
 		}
 		commandLogger(cmd).Success("TUNNEL", "Admin profile added", "profile", item.ID)
+		commandLogger(cmd).Detail("tunnels", count)
+		return nil
+	}}
+	cmd.Flags().StringVar(&adminKey, "admin-key", "", "OpenAI admin API key")
+	cmd.Flags().StringVar(&controlPlane, "control-plane-base-url", "", "OpenAI control plane base URL")
+	scope.add(cmd)
+	return cmd
+}
+
+func tunnelAdminUpdateProfileCommand() *cobra.Command {
+	var adminKey, controlPlane string
+	var scope tunnelAdminScopeFlags
+	cmd := &cobra.Command{Use: "update <profile>", Short: "Update a tunnel admin profile", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		admin := tunnel.AdminConfig{ID: strings.TrimSpace(args[0]), AdminKey: strings.TrimSpace(adminKey), ControlPlaneBaseURL: strings.TrimSpace(controlPlane), OrganizationID: strings.TrimSpace(scope.organizationID), WorkspaceID: strings.TrimSpace(scope.workspaceID), TenantID: strings.TrimSpace(scope.tenantID)}
+		if admin.OrganizationID == "" && admin.WorkspaceID == "" && admin.TenantID == "" {
+			items, err := application.TunnelAdminProfiles()
+			if err != nil {
+				return err
+			}
+			found := false
+			for _, item := range items {
+				if item.ID != admin.ID {
+					continue
+				}
+				admin.OrganizationID, admin.WorkspaceID, admin.TenantID = item.OrganizationID, item.WorkspaceID, item.TenantID
+				found = true
+				break
+			}
+			if !found {
+				return fmt.Errorf("admin profile %q not found", admin.ID)
+			}
+		}
+		ctx, cancel := context.WithTimeout(cmd.Context(), tunnelAdminTimeout)
+		defer cancel()
+		item, count, err := application.UpdateTunnelAdminProfile(ctx, admin)
+		if err != nil {
+			return err
+		}
+		commandLogger(cmd).Success("TUNNEL", "Admin profile updated", "profile", item.ID)
 		commandLogger(cmd).Detail("tunnels", count)
 		return nil
 	}}

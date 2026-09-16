@@ -117,6 +117,7 @@ const (
 	TunnelManagedDelete      ID = "tunnel.managed.delete"
 	TunnelAdminList          ID = "tunnel.admin.list"
 	TunnelAdminAdd           ID = "tunnel.admin.add"
+	TunnelAdminUpdate        ID = "tunnel.admin.update"
 	TunnelAdminVerify        ID = "tunnel.admin.verify"
 	TunnelAdminRemove        ID = "tunnel.admin.remove"
 	TunnelSync               ID = "tunnel.sync"
@@ -164,7 +165,7 @@ var specs = []Spec{
 	{PluginConfigList, "plugin config list", nil}, {PluginConfigGet, "plugin config get", nil}, {PluginConfigSet, "plugin config set", nil}, {PluginConfigReset, "plugin config reset", nil},
 	{TunnelStatus, "tunnel status", nil}, {TunnelList, "tunnel list", nil}, {TunnelAttach, "tunnel attach", nil}, {TunnelDetach, "tunnel detach", nil}, {TunnelEnable, "tunnel enable", nil}, {TunnelDisable, "tunnel disable", nil}, {TunnelStart, "tunnel start", nil}, {TunnelStop, "tunnel stop", nil}, {TunnelForeground, "tunnel run", nil},
 	{TunnelManagedList, "tunnel managed list", nil}, {TunnelManagedGet, "tunnel managed get", nil}, {TunnelManagedCreate, "tunnel managed create", nil}, {TunnelManagedUpdate, "tunnel managed update", nil}, {TunnelManagedDelete, "tunnel managed delete", nil},
-	{TunnelAdminList, "tunnel admin list", nil}, {TunnelAdminAdd, "tunnel admin add", nil}, {TunnelAdminVerify, "tunnel admin verify", nil}, {TunnelAdminRemove, "tunnel admin remove", nil},
+	{TunnelAdminList, "tunnel admin list", nil}, {TunnelAdminAdd, "tunnel admin add", nil}, {TunnelAdminUpdate, "tunnel admin update", nil}, {TunnelAdminVerify, "tunnel admin verify", nil}, {TunnelAdminRemove, "tunnel admin remove", nil},
 	{StatusOverview, "status", nil}, {VersionAbout, "version", nil},
 }
 

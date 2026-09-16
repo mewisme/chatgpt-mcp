@@ -27,8 +27,8 @@ func defaultActionRegistry() *action.Registry {
 		navigationAction("app.go.plugins.marketplace", "Plugin Marketplace", Route{Kind: RoutePlugins, Section: "marketplace"}, []string{"plugin", "marketplace", "search", "install"}, capability.PluginSearch),
 		navigationAction("app.go.plugins.updates", "Plugin Updates", Route{Kind: RoutePlugins, Section: "updates"}, []string{"plugin", "update", "outdated"}, capability.PluginOutdated),
 		navigationAction("app.go.plugins.registries", "Plugin Registries", Route{Kind: RoutePlugins, Section: "registries"}, []string{"plugin", "registry", "trust"}, capability.PluginRegistryList),
-		navigationAction("app.go.tunnel", "Tunnel", Route{Kind: RouteTunnel}, []string{"tunnel", "secure", "admin", "profiles"}, capability.TunnelList, capability.TunnelStatus, capability.TunnelAdminList, capability.TunnelAdminAdd, capability.TunnelAdminVerify, capability.TunnelAdminRemove),
-		navigationAction("app.go.admins", "Admin Profiles", Route{Kind: RouteTunnelAdmins}, []string{"tunnel", "admin", "profile", "profiles"}, capability.TunnelAdminList, capability.TunnelAdminAdd, capability.TunnelAdminVerify, capability.TunnelAdminRemove),
+		navigationAction("app.go.tunnel", "Tunnel", Route{Kind: RouteTunnel}, []string{"tunnel", "secure", "admin", "profiles"}, capability.TunnelList, capability.TunnelStatus, capability.TunnelAdminList, capability.TunnelAdminAdd, capability.TunnelAdminUpdate, capability.TunnelAdminVerify, capability.TunnelAdminRemove),
+		navigationAction("app.go.admins", "Admin Profiles", Route{Kind: RouteTunnelAdmins}, []string{"tunnel", "admin", "profile", "profiles"}, capability.TunnelAdminList, capability.TunnelAdminAdd, capability.TunnelAdminUpdate, capability.TunnelAdminVerify, capability.TunnelAdminRemove),
 		navigationAction("app.go.tunnels", "Managed Tunnels", Route{Kind: RouteTunnels}, []string{"tunnel", "tunnels", "managed", "openai"}, capability.TunnelManagedList, capability.TunnelManagedGet),
 		navigationAction("app.go.requests", "Requests", Route{Kind: RouteRequests}, []string{"request", "approval"}, capability.RequestView),
 		navigationAction("app.go.logs", "Logs", Route{Kind: RouteLogs}, []string{"logs", "events", "journal"}),
@@ -201,7 +201,7 @@ func tunnelActions() []action.Action {
 		editorNavigationAction("tunnel.admin.add", "Add admin profile", "Tunnel", "Add an OpenAI admin profile for tunnel management", []string{"tunnel", "admin", "profile", "add"}, []string{"tunnel", "admin", "add"}, func(ctx action.Context) bool {
 			return ctx.Route == string(RouteTunnel) || ctx.Route == string(RouteTunnelAdmins) || ctx.Route == string(RouteTunnels)
 		}, func(action.Context) Route { return Route{Kind: RouteTunnelAdmins, Action: "create"} }),
-		editorNavigationAction("tunnel.admin.update", "Update admin profile", "Tunnel", "Update the current tunnel admin profile", []string{"tunnel", "admin", "profile", "edit"}, []string{"tunnel", "admin", "add"}, func(ctx action.Context) bool {
+		editorNavigationAction("tunnel.admin.update", "Update admin profile", "Tunnel", "Update the current tunnel admin profile", []string{"tunnel", "admin", "profile", "edit"}, []string{"tunnel", "admin", "update"}, func(ctx action.Context) bool {
 			return ctx.Route == string(RouteTunnelAdmins) && ctx.ResourceID != ""
 		}, func(ctx action.Context) Route {
 			return Route{Kind: RouteTunnelAdmins, ResourceID: ctx.ResourceID, Action: "edit"}

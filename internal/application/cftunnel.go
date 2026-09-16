@@ -1,6 +1,7 @@
 package application
 
 import (
+	"context"
 	"strings"
 
 	"go.mewis.me/chatgpt-mcp/internal/config"
@@ -56,4 +57,78 @@ func AdminExposureError(cfg config.Config) error {
 		return cftunnelplugin.ErrAdminTokenMissing
 	}
 	return nil
+}
+
+func StartCFTunnel(ctx context.Context, cfg config.Config, target string) error {
+	wantMCP, wantAdmin, err := cfTunnelTargets(target)
+	if err != nil {
+		return err
+	}
+	if wantMCP && wantAdmin {
+		if err := MCPExposureError(cfg); err != nil {
+			return err
+		}
+		if err := AdminExposureError(cfg); err != nil {
+			return err
+		}
+	} else if wantMCP {
+		if err := MCPExposureError(cfg); err != nil {
+			return err
+		}
+	} else if err := AdminExposureError(cfg); err != nil {
+		return err
+	}
+	service, err := NewPluginService()
+	if err != nil {
+		return err
+	}
+	if err := service.SetEnabled(ctx, cftunnelplugin.Plugin().ID, true); err != nil {
+		return err
+	}
+	if wantMCP {
+		if err := service.SetPluginSetting(ctx, cftunnelplugin.Plugin().ID, cftunnelplugin.TargetMCP, "true"); err != nil {
+			return err
+		}
+	}
+	if wantAdmin {
+		if err := service.SetPluginSetting(ctx, cftunnelplugin.Plugin().ID, cftunnelplugin.TargetAdmin, "true"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func StopCFTunnel(ctx context.Context, target string) error {
+	wantMCP, wantAdmin, err := cfTunnelTargets(target)
+	if err != nil {
+		return err
+	}
+	service, err := NewPluginService()
+	if err != nil {
+		return err
+	}
+	if wantMCP && wantAdmin {
+		if err := service.SetEnabled(ctx, cftunnelplugin.Plugin().ID, false); err != nil {
+			return err
+		}
+	}
+	if wantMCP {
+		if err := service.SetPluginSetting(ctx, cftunnelplugin.Plugin().ID, cftunnelplugin.TargetMCP, "false"); err != nil {
+			return err
+		}
+	}
+	if wantAdmin {
+		if err := service.SetPluginSetting(ctx, cftunnelplugin.Plugin().ID, cftunnelplugin.TargetAdmin, "false"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func cfTunnelTargets(target string) (wantMCP, wantAdmin bool, err error) {
+	parsed, err := cftunnelplugin.ParseTarget(target)
+	if err != nil {
+		return false, false, err
+	}
+	return parsed == cftunnelplugin.TargetMCP || parsed == "all", parsed == cftunnelplugin.TargetAdmin || parsed == "all", nil
 }

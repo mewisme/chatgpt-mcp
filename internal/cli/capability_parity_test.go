@@ -20,6 +20,7 @@ var publicCapabilityExemptions = map[string]string{
 	"plugin":               "plugin namespace entrypoint only renders help and rejects positional fallbacks",
 	"plugin registry":      "plugin registry namespace entrypoint only renders help and rejects positional fallbacks",
 	"plugin config":        "plugin config namespace entrypoint only renders help and rejects positional fallbacks",
+	"tunnel cf":            "CF Tunnel namespace entrypoint only renders help and rejects positional fallbacks",
 }
 
 func TestPublicCommandsHaveCanonicalCapabilities(t *testing.T) {

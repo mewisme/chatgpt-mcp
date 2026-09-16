@@ -19,7 +19,7 @@ var readOnlyPaths = map[string]bool{
 	"mcp server list": true, "mcp server show": true, "mcp server status": true, "mcp server tools": true,
 	"plugin": true, "plugin search": true, "plugin info": true, "plugin list": true, "plugin outdated": true, "plugin verify": true, "plugin registry": true, "plugin registry list": true,
 	"plugin config": true, "plugin config list": true, "plugin config get": true,
-	"tunnel status": true, "logs": true, "logs follow": true, "logs path": true,
+	"tunnel status": true, "tunnel cf": true, "tunnel cf status": true, "logs": true, "logs follow": true, "logs path": true,
 }
 
 var ancestorContextCheck = true

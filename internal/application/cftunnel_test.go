@@ -1,6 +1,7 @@
 package application
 
 import (
+	"context"
 	"testing"
 
 	"go.mewis.me/chatgpt-mcp/internal/config"
@@ -58,5 +59,43 @@ func TestMCPExposureErrorRequiresAuth(t *testing.T) {
 	cfg.Server.Enabled = false
 	if err := MCPExposureError(cfg); err != cftunnelplugin.ErrMCPHTTPDisabled {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestStartCFTunnelAllFailsBeforePersist(t *testing.T) {
+	testutil.UseConfigRoot(t, t.TempDir())
+	cfg := config.Default()
+	if err := StartCFTunnel(context.Background(), cfg, "all"); err != cftunnelplugin.ErrMCPTokenMissing {
+		t.Fatalf("error = %v", err)
+	}
+	if CFTunnelSnapshot(cfg).PluginEnabled {
+		t.Fatal("start all persisted plugin enable")
+	}
+}
+
+func TestStartCFTunnelMCPPersistsDesired(t *testing.T) {
+	testutil.UseConfigRoot(t, t.TempDir())
+	cfg := config.Default()
+	cfg.Auth.MCPTokenHash = "mcp-hash"
+	cfg.Auth.AdminTokenHash = "admin-hash"
+	if err := StartCFTunnel(context.Background(), cfg, "mcp"); err != nil {
+		t.Fatal(err)
+	}
+	snap := CFTunnelSnapshot(cfg)
+	if !snap.PluginEnabled || !snap.DesiredMCP || snap.DesiredAdmin {
+		t.Fatalf("snapshot = %#v", snap)
+	}
+	if err := StopCFTunnel(context.Background(), "mcp"); err != nil {
+		t.Fatal(err)
+	}
+	snap = CFTunnelSnapshot(cfg)
+	if snap.DesiredMCP {
+		t.Fatalf("stop left mcp desired: %#v", snap)
+	}
+}
+
+func TestStartCFTunnelRejectsUnknownTarget(t *testing.T) {
+	if err := StartCFTunnel(context.Background(), config.Default(), "ssh"); err == nil {
+		t.Fatal("unknown target accepted")
 	}
 }

@@ -36,7 +36,7 @@ func TestLogTunnelLifecycleReconnect(t *testing.T) {
 
 func TestTunnelCommandHierarchy(t *testing.T) {
 	cmd := tunnelCommand()
-	for _, path := range [][]string{{"admin", "list"}, {"admin", "add"}, {"admin", "update"}, {"admin", "verify"}, {"admin", "remove"}, {"managed", "list"}, {"managed", "get"}, {"managed", "create"}, {"managed", "update"}, {"managed", "delete"}, {"list"}, {"status"}, {"add"}, {"attach"}, {"update"}, {"detach"}, {"enable"}, {"disable"}, {"start"}, {"stop"}, {"run"}} {
+	for _, path := range [][]string{{"admin", "list"}, {"admin", "add"}, {"admin", "update"}, {"admin", "verify"}, {"admin", "remove"}, {"managed", "list"}, {"managed", "get"}, {"managed", "create"}, {"managed", "update"}, {"managed", "delete"}, {"list"}, {"status"}, {"add"}, {"attach"}, {"update"}, {"detach"}, {"enable"}, {"disable"}, {"start"}, {"stop"}, {"cf", "status"}, {"cf", "start"}, {"cf", "stop"}, {"run"}} {
 		resolved, _, err := cmd.Find(path)
 		if err != nil || resolved.Name() != path[len(path)-1] {
 			t.Fatalf("tunnel path %v resolved to %v: %v", path, resolved, err)

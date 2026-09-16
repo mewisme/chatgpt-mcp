@@ -10,6 +10,7 @@ import (
 	"go.mewis.me/chatgpt-mcp/docs/tuiguide"
 	"go.mewis.me/chatgpt-mcp/internal/application"
 	"go.mewis.me/chatgpt-mcp/internal/capability"
+	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/tui/action"
 	tuipage "go.mewis.me/chatgpt-mcp/internal/tui/page"
 )
@@ -231,6 +232,36 @@ func tunnelActions() []action.Action {
 			return Route{Kind: RouteTunnels, ResourceID: ctx.ResourceID, Action: "configure"}
 		}),
 		tunnelAction("tunnel.managed.delete", "Delete managed tunnel", "Permanently delete the current managed tunnel", []string{"tunnel", "managed", "delete", "remove"}, []string{"tunnel", "managed", "delete"}, tuipage.TunnelManagedDelete, RouteTunnels, true),
+		cfTunnelAction("tunnel.cf.status", "CF Tunnel status", "Show Cloudflare Quick Tunnel status for MCP and Admin HTTP", []string{"cf", "cloudflare", "quick", "status"}, []string{"tunnel", "cf", "status"}, "status"),
+		cfTunnelAction("tunnel.cf.start", "Start CF Tunnel", "Expose MCP and Admin HTTP through Cloudflare Quick Tunnels", []string{"cf", "cloudflare", "quick", "start"}, []string{"tunnel", "cf", "start"}, "start"),
+		cfTunnelAction("tunnel.cf.stop", "Stop CF Tunnel", "Stop Cloudflare Quick Tunnels for MCP and Admin HTTP", []string{"cf", "cloudflare", "quick", "stop"}, []string{"tunnel", "cf", "stop"}, "stop"),
+	}
+}
+
+func cfTunnelAction(id, title, description string, keywords, commandPath []string, kind string) action.Action {
+	return action.Action{
+		ID: id, Title: title, Category: "CF Tunnel", Description: description, Keywords: keywords, CommandPath: commandPath, Capabilities: capabilitiesForCommandPath(commandPath), Scope: action.ScopeGlobal,
+		Available: func(ctx action.Context) bool {
+			return ctx.Route == string(RouteTunnel) || ctx.Route == string(RouteTunnels) || ctx.Route == string(RouteRuntime)
+		},
+		Run: func(ctx context.Context, _ action.Context) tea.Cmd {
+			return func() tea.Msg {
+				switch kind {
+				case "start":
+					cfg, err := config.Load()
+					if err != nil {
+						return tuipage.OperationResult(id, "CF Tunnel", "", err)
+					}
+					err = application.StartCFTunnel(ctx, cfg, "all")
+					return tuipage.OperationResult(id, "CF Tunnel", "CF Tunnel start requested", err)
+				case "stop":
+					err := application.StopCFTunnel(ctx, "all")
+					return tuipage.OperationResult(id, "CF Tunnel", "CF Tunnel stop requested", err)
+				default:
+					return tuipage.OperationResult(id, "CF Tunnel", "Use cgm tunnel cf status for ephemeral URLs", nil)
+				}
+			}
+		},
 	}
 }
 

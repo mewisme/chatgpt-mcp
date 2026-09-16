@@ -122,6 +122,9 @@ const (
 	TunnelAdminVerify        ID = "tunnel.admin.verify"
 	TunnelAdminRemove        ID = "tunnel.admin.remove"
 	TunnelUpdate             ID = "tunnel.update"
+	TunnelCFStatus           ID = "tunnel.cf.status"
+	TunnelCFStart            ID = "tunnel.cf.start"
+	TunnelCFStop             ID = "tunnel.cf.stop"
 	StatusOverview           ID = "status.overview"
 	VersionAbout             ID = "version.about"
 )
@@ -157,6 +160,7 @@ var specs = []Spec{
 	{TunnelStatus, "tunnel status", nil}, {TunnelList, "tunnel list", nil}, {TunnelAttach, "tunnel attach", nil}, {TunnelAdd, "tunnel add", nil}, {TunnelUpdate, "tunnel update", nil}, {TunnelDetach, "tunnel detach", nil}, {TunnelEnable, "tunnel enable", nil}, {TunnelDisable, "tunnel disable", nil}, {TunnelStart, "tunnel start", nil}, {TunnelStop, "tunnel stop", nil}, {TunnelForeground, "tunnel run", nil},
 	{TunnelManagedList, "tunnel managed list", nil}, {TunnelManagedGet, "tunnel managed get", nil}, {TunnelManagedCreate, "tunnel managed create", nil}, {TunnelManagedUpdate, "tunnel managed update", nil}, {TunnelManagedDelete, "tunnel managed delete", nil},
 	{TunnelAdminList, "tunnel admin list", nil}, {TunnelAdminAdd, "tunnel admin add", nil}, {TunnelAdminUpdate, "tunnel admin update", nil}, {TunnelAdminVerify, "tunnel admin verify", nil}, {TunnelAdminRemove, "tunnel admin remove", nil},
+	{TunnelCFStatus, "tunnel cf status", nil}, {TunnelCFStart, "tunnel cf start", nil}, {TunnelCFStop, "tunnel cf stop", nil},
 	{StatusOverview, "status", nil}, {VersionAbout, "version", nil},
 }
 

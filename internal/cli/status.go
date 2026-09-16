@@ -161,6 +161,7 @@ func runStatus(cmd *cobra.Command, _ []string) (runErr error) {
 func renderStatusText(out io.Writer, snapshot statusSnapshot, verbose bool) {
 	renderStatusBaseText(out, snapshot, verbose)
 	renderStatusTunnel(out, snapshot, verbose)
+	renderStatusCFTunnel(out, snapshot)
 }
 
 func renderStatusBaseText(out io.Writer, snapshot statusSnapshot, verbose bool) {
@@ -305,6 +306,28 @@ func renderStatusTunnelBody(out io.Writer, snapshot statusSnapshot, verbose bool
 	statusField(out, "status", statusTunnelSummaryLine(snapshot.Running, summary, views))
 	for _, view := range views {
 		statusStateField(out, view.Label, view.State)
+	}
+}
+
+func renderStatusCFTunnel(out io.Writer, snapshot statusSnapshot) {
+	var live *runtimecontrol.CFTunnelStatus
+	if snapshot.Running {
+		live = snapshot.Runtime.CFTunnel
+	}
+	items := cfTunnelStatusItems(snapshot.Config, live)
+	interesting := live != nil && live.PluginEnabled
+	for _, item := range items {
+		if item.Desired || item.Running || item.Ready || item.LastError != "" {
+			interesting = true
+		}
+	}
+	if !interesting {
+		return
+	}
+	fmt.Fprintln(out, "\n"+cliHeading("CF Tunnel"))
+	statusField(out, "note", "ephemeral Quick Tunnels, not Secure MCP")
+	for _, item := range items {
+		statusField(out, item.Target, cfTunnelStatusLine(item))
 	}
 }
 

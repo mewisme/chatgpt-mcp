@@ -192,7 +192,18 @@ func (s Store) MigrateLegacyState(source string) error {
 			return fmt.Errorf("migrate legacy workspace state %s: %w", entry.Name(), err)
 		}
 	}
-	return os.RemoveAll(source)
+	if err := os.RemoveAll(source); err != nil {
+		return err
+	}
+	parent := filepath.Dir(source)
+	if filepath.Base(parent) != "workspaces" {
+		return nil
+	}
+	entries, err = os.ReadDir(parent)
+	if err != nil || len(entries) > 0 {
+		return nil
+	}
+	return os.Remove(parent)
 }
 
 func validateIdentity(identity Identity) error {

@@ -79,6 +79,9 @@ func TestWorkspaceRegistryV2MigratesStateLocalAndPreservesID(t *testing.T) {
 	if _, err := os.Stat(oldState); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("legacy global state remains: %v", err)
 	}
+	if _, err := os.Stat(filepath.Join(configRoot, "workspaces")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("empty leftover workspaces dir remains: %v", err)
+	}
 	local := workspacestate.New(workspaceRoot)
 	for path, want := range map[string]string{
 		filepath.Join(local.StateRoot(), "marker.txt"):                 "v2",

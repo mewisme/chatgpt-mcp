@@ -291,7 +291,7 @@ func TestOpenRootForPathRejectsReplacedWorkspaceRootSymlink(t *testing.T) {
 		t.Fatal(err)
 	}
 	outside := t.TempDir()
-	if err := os.Remove(root); err != nil {
+	if err := os.RemoveAll(root); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Symlink(outside, root); err != nil {
@@ -300,6 +300,27 @@ func TestOpenRootForPathRejectsReplacedWorkspaceRootSymlink(t *testing.T) {
 	if handle, _, err := manager.OpenRootForPath(item.ID, filepath.Join(root, "file.txt")); err == nil {
 		_ = handle.Close()
 		t.Fatal("expected replaced workspace root symlink to be rejected")
+	}
+}
+
+func TestWorkspaceLocalStateIsProtected(t *testing.T) {
+	root := t.TempDir()
+	manager := newTestManager(t)
+	item, err := manager.Register(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{filepath.Join(root, ".cgm"), filepath.Join(root, ".cgm", "workspace.json")} {
+		if _, err := manager.ResolvePath(item.ID, root, path, false); err == nil {
+			t.Fatalf("protected workspace state resolved: %s", path)
+		}
+		if handle, _, err := manager.OpenRootForPath(item.ID, path); err == nil {
+			_ = handle.Close()
+			t.Fatalf("protected workspace state opened: %s", path)
+		}
+	}
+	if err := manager.ValidateMutationCommand(item.ID, root, "rm -rf .cgm"); err == nil {
+		t.Fatal("destructive shell command targeting .cgm was accepted")
 	}
 }
 

@@ -1,11 +1,11 @@
 package workspace
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -18,13 +18,21 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/instance"
 	"go.mewis.me/chatgpt-mcp/internal/state"
 	tracepkg "go.mewis.me/chatgpt-mcp/internal/trace"
+	"go.mewis.me/chatgpt-mcp/internal/workspacestate"
 )
 
-const storeVersion = 4
+const storeVersion = 5
 
 var ErrNotFound = errors.New("workspace not found")
 
 type Workspace struct {
+	ID        string   `json:"id"`
+	Path      string   `json:"path"`
+	AllowDirs []string `json:"allow_dirs,omitempty"`
+	LegacyIDs []string `json:"legacy_ids,omitempty"`
+}
+
+type storedWorkspace struct {
 	ID        string   `json:"id"`
 	Path      string   `json:"path"`
 	AllowDirs []string `json:"allow_dirs,omitempty"`
@@ -41,7 +49,7 @@ type WorkspaceContainer struct {
 
 type storeFile struct {
 	Version    int                  `json:"version"`
-	Workspaces []Workspace          `json:"workspaces"`
+	Workspaces []storedWorkspace    `json:"workspaces"`
 	Containers []WorkspaceContainer `json:"containers,omitempty"`
 }
 
@@ -187,14 +195,49 @@ func (m *Manager) Register(path string) (Workspace, error) {
 		span.FailMessage("Workspace registration failed", err, tracepkg.String("canonical_path", root), tracepkg.Bool("protected", true))
 		return Workspace{}, err
 	}
-	item := Workspace{ID: workspaceID(root), Path: root, AllowDirs: []string{}}
+	local := workspacestate.New(root)
+	identity, created, err := local.EnsureIdentity("")
+	if err != nil {
+		span.FailMessage("Workspace registration failed", err, tracepkg.String("canonical_path", root))
+		return Workspace{}, err
+	}
+	config, err := local.LoadConfig()
+	if err != nil {
+		span.FailMessage("Workspace registration failed", err, tracepkg.String("workspace_id", identity.ID), tracepkg.String("canonical_path", root))
+		return Workspace{}, err
+	}
+	config.AllowDirs = normalizeRoots(config.AllowDirs)
+	config.LegacyIDs = normalizeIDs(config.LegacyIDs, identity.ID)
+	_, configErr := os.Stat(local.ConfigPath())
+	if created || errors.Is(configErr, os.ErrNotExist) {
+		if err := local.SaveConfig(config); err != nil {
+			span.FailMessage("Workspace registration failed", err, tracepkg.String("workspace_id", identity.ID), tracepkg.String("canonical_path", root))
+			return Workspace{}, err
+		}
+	} else if configErr != nil {
+		span.FailMessage("Workspace registration failed", configErr, tracepkg.String("workspace_id", identity.ID), tracepkg.String("canonical_path", root))
+		return Workspace{}, configErr
+	}
+	if err := local.EnsureGitExcluded(context.Background()); err != nil {
+		span.FailMessage("Workspace registration failed", err, tracepkg.String("workspace_id", identity.ID), tracepkg.String("canonical_path", root))
+		return Workspace{}, err
+	}
+	item := Workspace{ID: identity.ID, Path: root, AllowDirs: config.AllowDirs, LegacyIDs: config.LegacyIDs}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	existing, existed := m.items[item.ID]
-	if existed {
-		item.AllowDirs = append([]string(nil), existing.AllowDirs...)
-		item.LegacyIDs = append([]string(nil), existing.LegacyIDs...)
+	if existed && filepath.Clean(existing.Path) != root {
+		err := fmt.Errorf("workspace identity %s is already registered at %s", item.ID, existing.Path)
+		span.FailMessage("Workspace registration failed", err, tracepkg.String("workspace_id", item.ID), tracepkg.String("canonical_path", root))
+		return Workspace{}, err
+	}
+	for id, registered := range m.items {
+		if id != item.ID && filepath.Clean(registered.Path) == root {
+			err := fmt.Errorf("workspace path is already registered as %s", id)
+			span.FailMessage("Workspace registration failed", err, tracepkg.String("workspace_id", item.ID), tracepkg.String("canonical_path", root))
+			return Workspace{}, err
+		}
 	}
 	m.items[item.ID] = item
 	if err := m.saveLocked(); err != nil {
@@ -235,9 +278,12 @@ func (m *Manager) AddAllowDir(id, path string) (Workspace, error) {
 		return Workspace{}, err
 	}
 	previousCount := len(item.AllowDirs)
+	previous := append([]string(nil), item.AllowDirs...)
 	item.AllowDirs = normalizeRoots(append(item.AllowDirs, root))
 	m.items[canonical] = item
-	if err := m.saveLocked(); err != nil {
+	if err := m.saveWorkspaceConfigLocked(item); err != nil {
+		item.AllowDirs = previous
+		m.items[canonical] = item
 		span.FailMessage("Adding workspace allowed directory failed", err)
 		return Workspace{}, err
 	}
@@ -284,9 +330,12 @@ func (m *Manager) RemoveAllowDir(id, path string) (Workspace, error) {
 		span.FailMessage("Removing workspace allowed directory failed", err, tracepkg.String("canonical_path", root))
 		return Workspace{}, err
 	}
+	previous := append([]string(nil), item.AllowDirs...)
 	item.AllowDirs = normalizeRoots(filtered)
 	m.items[canonical] = item
-	if err := m.saveLocked(); err != nil {
+	if err := m.saveWorkspaceConfigLocked(item); err != nil {
+		item.AllowDirs = previous
+		m.items[canonical] = item
 		span.FailMessage("Removing workspace allowed directory failed", err)
 		return Workspace{}, err
 	}
@@ -431,6 +480,9 @@ func (m *Manager) OpenRootForPath(id, path string) (*os.Root, string, error) {
 	if m.protected(absolute) {
 		return nil, "", fmt.Errorf("path is protected: %s", absolute)
 	}
+	if item, err := m.Get(id); err == nil && within(workspacestate.New(item.Path).Root(), absolute) {
+		return nil, "", fmt.Errorf("path is protected workspace state: %s", absolute)
+	}
 	roots, err := m.EffectiveRoots(id)
 	if err != nil {
 		return nil, "", err
@@ -512,38 +564,61 @@ func (m *Manager) ensureLoaded() error {
 		return err
 	}
 	migrated := stored.Version != storeVersion
-	migratedIDs, rewrittenFiles := 0, 0
-	for _, item := range stored.Workspaces {
-		if item.ID == "" || item.Path == "" {
+	for _, storedItem := range stored.Workspaces {
+		if storedItem.ID == "" || storedItem.Path == "" {
 			err := errors.New("workspace registry contains invalid entry")
 			span.FailMessage("Workspace registry validation failed", err)
 			return err
 		}
-		canonicalID := workspaceID(item.Path)
-		if item.ID != canonicalID {
-			previousID := item.ID
-			item.ID = canonicalID
-			item.LegacyIDs = appendUniqueString(item.LegacyIDs, previousID)
-			stateRoot := filepath.Join(filepath.Dir(m.path), "workspaces")
-			legacyStatePath := filepath.Join(stateRoot, previousID)
-			canonicalStatePath := filepath.Join(stateRoot, canonicalID)
-			migrationSpan := tracepkg.StartObserver(m.trace, "WORKSPACE", "workspace.state.migrate", "Migrating workspace state", tracepkg.String("legacy_workspace_id", previousID), tracepkg.String("workspace_id", canonicalID), tracepkg.String("legacy_state_path", legacyStatePath), tracepkg.String("canonical_state_path", canonicalStatePath))
-			rewritten, err := m.migrateWorkspaceState(previousID, canonicalID)
-			if err != nil {
-				migrationSpan.FailMessage("Workspace state migration failed", err)
-				span.FailMessage("Workspace registry migration failed", err)
+		root, err := canonicalExistingDirectory(storedItem.Path)
+		if err != nil {
+			span.FailMessage("Workspace registry validation failed", err, tracepkg.String("workspace_id", storedItem.ID), tracepkg.String("workspace_path", storedItem.Path))
+			return err
+		}
+		local := workspacestate.New(root)
+		identity, created, err := local.EnsureIdentity(storedItem.ID)
+		if err != nil {
+			span.FailMessage("Workspace registry local identity validation failed", err, tracepkg.String("workspace_id", storedItem.ID), tracepkg.String("workspace_path", root))
+			return err
+		}
+		config, err := local.LoadConfig()
+		if err != nil {
+			span.FailMessage("Workspace registry local config validation failed", err, tracepkg.String("workspace_id", storedItem.ID), tracepkg.String("workspace_path", root))
+			return err
+		}
+		if stored.Version < storeVersion || len(storedItem.AllowDirs) > 0 || len(storedItem.LegacyIDs) > 0 || created {
+			config.AllowDirs = normalizeRoots(append(config.AllowDirs, storedItem.AllowDirs...))
+			config.LegacyIDs = normalizeIDs(append(config.LegacyIDs, storedItem.LegacyIDs...), identity.ID)
+			if err := local.SaveConfig(config); err != nil {
+				span.FailMessage("Workspace registry local config migration failed", err, tracepkg.String("workspace_id", identity.ID))
 				return err
 			}
-			migrationSpan.EndMessage("Workspace state migrated", tracepkg.String("legacy_state_path", legacyStatePath), tracepkg.String("canonical_state_path", canonicalStatePath), tracepkg.Int("rewritten_files", rewritten))
-			migratedIDs++
-			rewrittenFiles += rewritten
+			migrated = true
 		}
-		item.AllowDirs = normalizeRoots(item.AllowDirs)
-		item.LegacyIDs = normalizeIDs(item.LegacyIDs, item.ID)
+		legacyRoots := append([]string{storedItem.ID}, storedItem.LegacyIDs...)
+		for _, legacyID := range legacyRoots {
+			legacyStatePath := filepath.Join(filepath.Dir(m.path), "workspaces", legacyID)
+			if err := local.MigrateLegacyState(legacyStatePath); err != nil {
+				span.FailMessage("Workspace state migration failed", err, tracepkg.String("workspace_id", identity.ID), tracepkg.String("legacy_state_path", legacyStatePath))
+				return err
+			}
+		}
+		if err := local.EnsureGitExcluded(context.Background()); err != nil {
+			span.FailMessage("Workspace Git exclusion failed", err, tracepkg.String("workspace_id", identity.ID), tracepkg.String("workspace_path", root))
+			return err
+		}
+		item := Workspace{ID: identity.ID, Path: root, AllowDirs: normalizeRoots(config.AllowDirs), LegacyIDs: normalizeIDs(config.LegacyIDs, identity.ID)}
 		if existing, ok := m.items[item.ID]; ok && filepath.Clean(existing.Path) != filepath.Clean(item.Path) {
 			err := fmt.Errorf("workspace registry id collision: %s", item.ID)
 			span.FailMessage("Workspace registry validation failed", err, tracepkg.String("workspace_id", item.ID))
 			return err
+		}
+		for existingID, existing := range m.items {
+			if existingID != item.ID && filepath.Clean(existing.Path) == filepath.Clean(item.Path) {
+				err := fmt.Errorf("workspace registry path collision: %s is indexed as both %s and %s", item.Path, existingID, item.ID)
+				span.FailMessage("Workspace registry validation failed", err, tracepkg.String("workspace_id", item.ID))
+				return err
+			}
 		}
 		m.items[item.ID] = item
 		for _, alias := range item.LegacyIDs {
@@ -581,7 +656,7 @@ func (m *Manager) ensureLoaded() error {
 	if detected, detectErr := configformat.Detect(m.path); detectErr == nil {
 		format = string(detected)
 	}
-	span.EndMessage("Workspace registry loaded", tracepkg.Bool("exists", true), tracepkg.String("format", format), tracepkg.Int64("bytes", int64(len(data))), tracepkg.Int("registry_version", stored.Version), tracepkg.Int("current_version", storeVersion), tracepkg.Int("workspaces", len(m.items)), tracepkg.Int("containers", len(m.containers)), tracepkg.Bool("migrated", migrated), tracepkg.Int("migrated_workspace_ids", migratedIDs), tracepkg.Int("rewritten_state_files", rewrittenFiles))
+	span.EndMessage("Workspace registry loaded", tracepkg.Bool("exists", true), tracepkg.String("format", format), tracepkg.Int64("bytes", int64(len(data))), tracepkg.Int("registry_version", stored.Version), tracepkg.Int("current_version", storeVersion), tracepkg.Int("workspaces", len(m.items)), tracepkg.Int("containers", len(m.containers)), tracepkg.Bool("migrated", migrated))
 	return nil
 }
 
@@ -610,93 +685,11 @@ func (m *Manager) registerAliasLocked(alias, canonical string) error {
 	return nil
 }
 
-func (m *Manager) migrateWorkspaceState(legacyID, canonicalID string) (int, error) {
-	if legacyID == canonicalID {
-		return 0, nil
-	}
-	root := filepath.Join(filepath.Dir(m.path), "workspaces")
-	legacyPath := filepath.Join(root, legacyID)
-	canonicalPath := filepath.Join(root, canonicalID)
-	_, legacyErr := os.Stat(legacyPath)
-	_, canonicalErr := os.Stat(canonicalPath)
-	if errors.Is(legacyErr, os.ErrNotExist) {
-		return 0, nil
-	}
-	if legacyErr != nil {
-		return 0, fmt.Errorf("inspect legacy workspace state: %w", legacyErr)
-	}
-	if canonicalErr == nil {
-		return 0, fmt.Errorf("cannot migrate workspace state: both %s and %s exist", legacyPath, canonicalPath)
-	}
-	if !errors.Is(canonicalErr, os.ErrNotExist) {
-		return 0, fmt.Errorf("inspect migrated workspace state: %w", canonicalErr)
-	}
-	rewritten, err := rewriteWorkspaceStateIDs(legacyPath, legacyID, canonicalID)
-	if err != nil {
-		return 0, err
-	}
-	if err := os.MkdirAll(root, 0700); err != nil {
-		return 0, err
-	}
-	if err := os.Rename(legacyPath, canonicalPath); err != nil {
-		return 0, fmt.Errorf("migrate workspace state %s -> %s: %w", legacyID, canonicalID, err)
-	}
-	return rewritten, nil
-}
-
-func rewriteWorkspaceStateIDs(root, legacyID, canonicalID string) (int, error) {
-	paths := []string{}
-	if err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if !entry.IsDir() {
-			paths = append(paths, path)
-		}
-		return nil
-	}); err != nil {
-		return 0, err
-	}
-	rewritten := 0
-	for _, path := range paths {
-		format, err := configformat.Detect(path)
-		if err != nil {
-			continue
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return rewritten, err
-		}
-		decoded, err := configformat.DecodeGeneric(format, data)
-		if err != nil {
-			return rewritten, fmt.Errorf("decode workspace state %s: %w", path, err)
-		}
-		object, ok := decoded.(map[string]any)
-		if !ok {
-			continue
-		}
-		value, _ := object["workspace_id"].(string)
-		if value == "" || value == canonicalID {
-			continue
-		}
-		if value != legacyID {
-			return rewritten, fmt.Errorf("workspace state %s belongs to unexpected workspace %s", path, value)
-		}
-		object["workspace_id"] = canonicalID
-		encoded, err := configformat.EncodeGeneric(format, object)
-		if err != nil {
-			return rewritten, fmt.Errorf("encode workspace state %s: %w", path, err)
-		}
-		if err := state.WriteFileAtomic(path, encoded, 0600); err != nil {
-			return rewritten, fmt.Errorf("rewrite workspace state %s: %w", path, err)
-		}
-		rewritten++
-	}
-	return rewritten, nil
-}
-
 func (m *Manager) allowed(id, candidate string) bool {
 	if m.protected(candidate) {
+		return false
+	}
+	if item, err := m.Get(id); err == nil && within(workspacestate.New(item.Path).Root(), candidate) {
 		return false
 	}
 	roots, err := m.EffectiveRoots(id)
@@ -784,9 +777,9 @@ func appendUniqueString(values []string, value string) []string {
 
 func (m *Manager) saveLocked() error {
 	span := tracepkg.StartObserver(m.trace, "WORKSPACE", "workspace.registry.persist", "Persisting workspace registry", tracepkg.String("path", m.path), tracepkg.Int("workspaces", len(m.items)), tracepkg.Int("containers", len(m.containers)), tracepkg.Bool("atomic", true))
-	items := make([]Workspace, 0, len(m.items))
+	items := make([]storedWorkspace, 0, len(m.items))
 	for _, item := range m.items {
-		items = append(items, item)
+		items = append(items, storedWorkspace{ID: item.ID, Path: item.Path})
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].Path < items[j].Path })
 	containers := make([]WorkspaceContainer, 0, len(m.containers))
@@ -816,6 +809,18 @@ func (m *Manager) saveLocked() error {
 	}
 	span.EndMessage("Workspace registry persisted", tracepkg.String("format", format), tracepkg.Int64("bytes", int64(len(data))), tracepkg.Int("registry_version", storeVersion), tracepkg.Int("workspaces", len(items)), tracepkg.Int("containers", len(containers)))
 	return nil
+}
+
+func (m *Manager) saveWorkspaceConfigLocked(item Workspace) error {
+	return workspacestate.New(item.Path).SaveConfig(workspacestate.Config{AllowDirs: normalizeRoots(item.AllowDirs), LegacyIDs: normalizeIDs(item.LegacyIDs, item.ID)})
+}
+
+func (m *Manager) LocalState(id string) (workspacestate.Store, error) {
+	item, err := m.Get(id)
+	if err != nil {
+		return workspacestate.Store{}, err
+	}
+	return workspacestate.New(item.Path), nil
 }
 
 func canonicalExistingDirectory(path string) (string, error) {

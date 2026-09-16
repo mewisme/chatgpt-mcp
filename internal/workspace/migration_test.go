@@ -5,24 +5,11 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
-	"time"
-)
 
-func writeTestInstanceIdentity(t *testing.T, root, id string) {
-	t.Helper()
-	path := filepath.Join(root, "state", "instance.json")
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
-		t.Fatal(err)
-	}
-	data, err := json.Marshal(map[string]any{"version": 1, "identity": map[string]any{"id": id, "name": "test", "created_at": time.Date(2026, 9, 2, 0, 0, 0, 0, time.UTC)}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, append(data, '\n'), 0600); err != nil {
-		t.Fatal(err)
-	}
-}
+	"go.mewis.me/chatgpt-mcp/internal/workspacestate"
+)
 
 func writeRegistryVersion(t *testing.T, path string, version int, item Workspace) {
 	t.Helper()
@@ -38,56 +25,44 @@ func writeRegistryVersion(t *testing.T, path string, version int, item Workspace
 	}
 }
 
-func TestWorkspaceIDsAreStableAcrossInstances(t *testing.T) {
+func TestWorkspaceIdentityIsStableAcrossManagers(t *testing.T) {
 	workspaceRoot := t.TempDir()
-	rootA, rootB := t.TempDir(), t.TempDir()
-	writeTestInstanceIdentity(t, rootA, "inst_11111111111111111111111111111111")
-	writeTestInstanceIdentity(t, rootB, "inst_22222222222222222222222222222222")
-	first, err := NewManager(filepath.Join(rootA, "workspaces.json")).Register(workspaceRoot)
+	first, err := NewManager(filepath.Join(t.TempDir(), "workspaces.json")).Register(workspaceRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := NewManager(filepath.Join(rootB, "workspaces.json")).Register(workspaceRoot)
+	second, err := NewManager(filepath.Join(t.TempDir(), "workspaces.json")).Register(workspaceRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.ID != second.ID || first.ID != workspaceID(first.Path) || first.Path != second.Path {
-		t.Fatalf("workspace ids are not path-stable: %#v %#v", first, second)
+	if first.ID != second.ID || first.Path != second.Path || !strings.HasPrefix(first.ID, "ws_") {
+		t.Fatalf("workspace identity is not stable: %#v %#v", first, second)
+	}
+	identity, err := workspacestate.New(workspaceRoot).LoadIdentity()
+	if err != nil || identity.ID != first.ID {
+		t.Fatalf("local identity=%#v err=%v", identity, err)
 	}
 }
 
-func TestWorkspaceRegistryMigratesV2InstanceIDAndState(t *testing.T) {
+func TestWorkspaceRegistryV2MigratesStateLocalAndPreservesID(t *testing.T) {
 	configRoot := t.TempDir()
 	workspaceRoot := t.TempDir()
-	instanceID := "inst_33333333333333333333333333333333"
-	oldID := instanceScopedWorkspaceID(instanceID, workspaceRoot)
-	canonicalID := workspaceID(workspaceRoot)
+	oldID := instanceScopedWorkspaceID("inst_33333333333333333333333333333333", workspaceRoot)
+	legacyAlias := workspaceID(workspaceRoot)
 	registryPath := filepath.Join(configRoot, "workspaces.json")
-	writeRegistryVersion(t, registryPath, 2, Workspace{ID: oldID, Path: workspaceRoot, LegacyIDs: []string{canonicalID}})
+	writeRegistryVersion(t, registryPath, 2, Workspace{ID: oldID, Path: workspaceRoot, LegacyIDs: []string{legacyAlias}})
 	oldState := filepath.Join(configRoot, "workspaces", oldID)
-	if err := os.MkdirAll(oldState, 0700); err != nil {
+	if err := os.MkdirAll(filepath.Join(oldState, "checkpoints", "data"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(oldState, "marker.txt"), []byte("v2"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	shellState, err := json.Marshal(map[string]any{"workspace_id": oldID, "cwd": workspaceRoot, "started_at": "x", "updated_at": "x", "recent_commands": []string{"pwd"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(oldState, "shell.json"), shellState, 0600); err != nil {
-		t.Fatal(err)
-	}
-	manifestDir := filepath.Join(oldState, "checkpoints", "cp_test")
-	if err := os.MkdirAll(manifestDir, 0700); err != nil {
-		t.Fatal(err)
-	}
-	manifestState, err := json.Marshal(map[string]any{"version": 1, "id": "cp_test", "workspace_id": oldID, "workspace_root": workspaceRoot, "created_at": "x", "tool": "edit_file", "summary": "test", "files": []any{}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(manifestDir, "manifest.json"), manifestState, 0600); err != nil {
-		t.Fatal(err)
+	for path, value := range map[string]string{
+		filepath.Join(oldState, "marker.txt"):                           "v2",
+		filepath.Join(oldState, "shell.json"):                           `{"workspace_id":"` + oldID + `","cwd":"` + workspaceRoot + `"}`,
+		filepath.Join(oldState, "checkpoints", "data", "manifest.json"): `{"workspace_id":"` + oldID + `"}`,
+	} {
+		if err := os.WriteFile(path, []byte(value), 0600); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	manager := NewManager(registryPath)
@@ -95,44 +70,25 @@ func TestWorkspaceRegistryMigratesV2InstanceIDAndState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(items) != 1 || items[0].ID != canonicalID || len(items[0].LegacyIDs) != 1 || items[0].LegacyIDs[0] != oldID {
-		t.Fatalf("migrated workspace = %#v", items)
+	if len(items) != 1 || items[0].ID != oldID || len(items[0].LegacyIDs) != 1 || items[0].LegacyIDs[0] != legacyAlias {
+		t.Fatalf("migrated workspace=%#v", items)
 	}
-	resolved, err := manager.Get(oldID)
-	if err != nil || resolved.ID != canonicalID {
-		t.Fatalf("v2 alias resolved to %#v err=%v", resolved, err)
-	}
-	if id, err := manager.CanonicalID(oldID); err != nil || id != canonicalID {
-		t.Fatalf("canonical id = %q err=%v", id, err)
+	if resolved, err := manager.Get(legacyAlias); err != nil || resolved.ID != oldID {
+		t.Fatalf("legacy alias resolved=%#v err=%v", resolved, err)
 	}
 	if _, err := os.Stat(oldState); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("v2 state still exists: %v", err)
+		t.Fatalf("legacy global state remains: %v", err)
 	}
-	marker, err := os.ReadFile(filepath.Join(configRoot, "workspaces", canonicalID, "marker.txt"))
-	if err != nil || string(marker) != "v2" {
-		t.Fatalf("migrated state marker = %q err=%v", marker, err)
-	}
-	for _, path := range []string{
-		filepath.Join(configRoot, "workspaces", canonicalID, "shell.json"),
-		filepath.Join(configRoot, "workspaces", canonicalID, "checkpoints", "cp_test", "manifest.json"),
+	local := workspacestate.New(workspaceRoot)
+	for path, want := range map[string]string{
+		filepath.Join(local.StateRoot(), "marker.txt"):                 "v2",
+		filepath.Join(local.StateRoot(), "shell.json"):                 `{"workspace_id":"` + oldID + `","cwd":"` + workspaceRoot + `"}`,
+		filepath.Join(local.CheckpointRoot(), "data", "manifest.json"): `{"workspace_id":"` + oldID + `"}`,
 	} {
 		data, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatal(err)
+		if err != nil || string(data) != want {
+			t.Fatalf("path=%s data=%q err=%v", path, data, err)
 		}
-		var object map[string]any
-		if err := json.Unmarshal(data, &object); err != nil {
-			t.Fatal(err)
-		}
-		if object["workspace_id"] != canonicalID {
-			t.Fatalf("state workspace id in %s = %#v", path, object["workspace_id"])
-		}
-	}
-
-	reloaded := NewManager(registryPath)
-	resolved, err = reloaded.Get(oldID)
-	if err != nil || resolved.ID != canonicalID {
-		t.Fatalf("persisted v2 alias resolved to %#v err=%v", resolved, err)
 	}
 	var stored storeFile
 	data, err := os.ReadFile(registryPath)
@@ -142,71 +98,83 @@ func TestWorkspaceRegistryMigratesV2InstanceIDAndState(t *testing.T) {
 	if err := json.Unmarshal(data, &stored); err != nil {
 		t.Fatal(err)
 	}
-	if stored.Version != storeVersion || len(stored.Workspaces) != 1 || stored.Workspaces[0].ID != canonicalID {
-		t.Fatalf("stored registry = %#v", stored)
+	if stored.Version != storeVersion || len(stored.Workspaces) != 1 || stored.Workspaces[0].ID != oldID || len(stored.Workspaces[0].AllowDirs) != 0 || len(stored.Workspaces[0].LegacyIDs) != 0 {
+		t.Fatalf("stored registry=%#v", stored)
 	}
 }
 
-func TestWorkspaceRegistryV1UpgradeKeepsStableID(t *testing.T) {
+func TestWorkspaceRegistryV1UpgradeKeepsID(t *testing.T) {
 	configRoot := t.TempDir()
 	workspaceRoot := t.TempDir()
-	canonicalID := workspaceID(workspaceRoot)
+	id := workspaceID(workspaceRoot)
 	registryPath := filepath.Join(configRoot, "workspaces.json")
-	writeRegistryVersion(t, registryPath, 1, Workspace{ID: canonicalID, Path: workspaceRoot})
-	manager := NewManager(registryPath)
-	item, err := manager.Get(canonicalID)
-	if err != nil || item.ID != canonicalID || len(item.LegacyIDs) != 0 {
-		t.Fatalf("v1 workspace = %#v err=%v", item, err)
+	writeRegistryVersion(t, registryPath, 1, Workspace{ID: id, Path: workspaceRoot})
+	item, err := NewManager(registryPath).Get(id)
+	if err != nil || item.ID != id {
+		t.Fatalf("workspace=%#v err=%v", item, err)
 	}
-	var stored storeFile
-	data, err := os.ReadFile(registryPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := json.Unmarshal(data, &stored); err != nil {
-		t.Fatal(err)
-	}
-	if stored.Version != storeVersion || stored.Workspaces[0].ID != canonicalID {
-		t.Fatalf("stored registry = %#v", stored)
+	identity, err := workspacestate.New(workspaceRoot).LoadIdentity()
+	if err != nil || identity.ID != id {
+		t.Fatalf("identity=%#v err=%v", identity, err)
 	}
 }
 
-func TestLegacyAliasSupportsWorkspaceMutations(t *testing.T) {
-	configRoot := t.TempDir()
+func TestWorkspaceConfigSurvivesUnregisterAndReregister(t *testing.T) {
+	registryPath := filepath.Join(t.TempDir(), "workspaces.json")
 	workspaceRoot := t.TempDir()
 	allowed := t.TempDir()
-	oldID := instanceScopedWorkspaceID("inst_44444444444444444444444444444444", workspaceRoot)
-	registryPath := filepath.Join(configRoot, "workspaces.json")
-	writeRegistryVersion(t, registryPath, 2, Workspace{ID: oldID, Path: workspaceRoot})
 	manager := NewManager(registryPath)
-	item, err := manager.AddAllowDir(oldID, allowed)
+	item, err := manager.Register(workspaceRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, err = manager.AddAllowDir(item.ID, allowed)
 	if err != nil || len(item.AllowDirs) != 1 {
-		t.Fatalf("add allow dir = %#v err=%v", item, err)
+		t.Fatalf("add allow dir=%#v err=%v", item, err)
 	}
-	if _, err := manager.RemoveAllowDir(oldID, allowed); err != nil {
+	if err := manager.Unregister(item.ID); err != nil {
 		t.Fatal(err)
 	}
-	if err := manager.Unregister(oldID); err != nil {
+	reregistered, err := manager.Register(workspaceRoot)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := manager.Get(oldID); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("legacy alias remained after unregister: %v", err)
+	if reregistered.ID != item.ID || len(reregistered.AllowDirs) != 1 || reregistered.AllowDirs[0] != canonicalRoot(allowed) {
+		t.Fatalf("reregistered=%#v want id=%s allow=%s", reregistered, item.ID, canonicalRoot(allowed))
+	}
+	data, err := os.ReadFile(registryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "allow_dirs") || strings.Contains(string(data), "legacy_ids") {
+		t.Fatalf("global registry contains workspace-owned config: %s", data)
 	}
 }
 
-func TestWorkspaceMigrationRejectsConflictingStateDirectories(t *testing.T) {
+func TestWorkspaceMigrationRejectsConflictingLocalState(t *testing.T) {
 	configRoot := t.TempDir()
 	workspaceRoot := t.TempDir()
-	oldID := instanceScopedWorkspaceID("inst_55555555555555555555555555555555", workspaceRoot)
-	canonicalID := workspaceID(workspaceRoot)
+	id := instanceScopedWorkspaceID("inst_55555555555555555555555555555555", workspaceRoot)
 	registryPath := filepath.Join(configRoot, "workspaces.json")
-	writeRegistryVersion(t, registryPath, 2, Workspace{ID: oldID, Path: workspaceRoot})
-	for _, id := range []string{oldID, canonicalID} {
-		if err := os.MkdirAll(filepath.Join(configRoot, "workspaces", id), 0700); err != nil {
-			t.Fatal(err)
-		}
+	writeRegistryVersion(t, registryPath, 2, Workspace{ID: id, Path: workspaceRoot})
+	legacyState := filepath.Join(configRoot, "workspaces", id)
+	if err := os.MkdirAll(legacyState, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(legacyState, "marker.txt"), []byte("legacy"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	local := workspacestate.New(workspaceRoot)
+	if _, _, err := local.EnsureIdentity(id); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(local.StateRoot(), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(local.StateRoot(), "marker.txt"), []byte("different"), 0600); err != nil {
+		t.Fatal(err)
 	}
 	if _, err := NewManager(registryPath).List(); err == nil {
-		t.Fatal("expected conflicting workspace state migration to fail")
+		t.Fatal("expected conflicting local workspace state migration to fail")
 	}
 }

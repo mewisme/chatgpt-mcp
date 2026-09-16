@@ -61,13 +61,9 @@ The dedicated generic-client HTTP transport is intentionally separate from the t
 
 ## Authentication
 
-`stdio` uses the local child-process boundary and does not require transport OAuth.
+`stdio` uses the local child-process boundary and does not require a bearer token.
 
-Protected `cgm mcp http` uses OAuth as the canonical client authentication flow. Static managed MCP bearer compatibility can be controlled with:
-
-```bash
-cgm config set auth.mcp_legacy_bearer false
-```
+Protected `cgm mcp http` uses the same Direct MCP HTTP bearer token as managed `/mcp`. Disable authentication with `cgm auth mcp disable` when a local client should connect without a token.
 
 The OpenAI Secure MCP Tunnel runtime API key is unrelated to generic MCP client authentication.
 

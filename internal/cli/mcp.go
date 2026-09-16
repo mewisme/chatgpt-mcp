@@ -18,7 +18,6 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/config"
 	"go.mewis.me/chatgpt-mcp/internal/logger"
 	"go.mewis.me/chatgpt-mcp/internal/mcp"
-	"go.mewis.me/chatgpt-mcp/internal/mcpauth"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
 	"go.mewis.me/chatgpt-mcp/internal/workspace"
 )
@@ -97,19 +96,13 @@ func runMCPHTTP(cmd *cobra.Command, workspace, host string, port int, enableSSE 
 	if err != nil {
 		return err
 	}
-	baseURL := "http://" + listener.Addr().String()
-	authority, err := mcpauth.New(baseURL, baseURL+"/mcp", func() (mcpauth.Config, error) {
+	handler = auth.DynamicHashedMiddleware(func() (bool, string) {
 		current, loadErr := config.LoadRuntime()
 		if loadErr != nil {
-			return mcpauth.Config{}, loadErr
+			return true, ""
 		}
-		return mcpauth.Config{Enabled: current.Auth.MCPEnabled, LegacyBearer: current.Auth.MCPLegacyBearer, TokenHash: current.Auth.MCPTokenHash}, nil
-	}, auth.VerifyToken)
-	if err != nil {
-		_ = listener.Close()
-		return err
-	}
-	handler = authority.Handler(handler)
+		return current.Auth.MCPEnabled, current.Auth.MCPTokenHash
+	}, handler)
 	server := &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute, MaxHeaderBytes: 1 << 20}
 	go func() {
 		<-cmd.Context().Done()

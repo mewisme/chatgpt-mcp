@@ -159,7 +159,7 @@ cgm auth admin create
 
 Direct authenticated endpoints expect their own credentials. The OpenAI Secure MCP Tunnel runtime API key is separate and must not be confused with an MCP/Admin bearer token.
 
-Protected generic `cgm mcp http` uses OAuth as its canonical transport authentication. Static MCP bearer compatibility is a migration path controlled by configuration.
+Protected generic `cgm mcp http` uses the Direct MCP HTTP bearer token. Secure MCP Tunnel credentials are separate.
 
 Disabling authentication on an enabled HTTP endpoint requires the corresponding explicit loopback acknowledgement and remains restricted by exposure validation. Prefer authenticated endpoints.
 

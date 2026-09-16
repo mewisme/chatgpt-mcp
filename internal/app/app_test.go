@@ -183,6 +183,24 @@ func TestHandlersRequireEnabledAuthentication(t *testing.T) {
 	}
 }
 
+func TestMCPHandlerOmitsInboundOAuthDiscovery(t *testing.T) {
+	cfg := config.Default()
+	cfg.Auth.MCPEnabled = false
+	cfg.Auth.AdminEnabled = false
+	cfg.Server.AllowUnauthenticatedLoopback = true
+	app, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/.well-known/oauth-authorization-server", "/.well-known/oauth-protected-resource/mcp", "/oauth/register", "/oauth/authorize", "/oauth/token"} {
+		recorder := httptest.NewRecorder()
+		app.MCPHandler().ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
+		if recorder.Code != http.StatusNotFound {
+			t.Fatalf("%s status=%d", path, recorder.Code)
+		}
+	}
+}
+
 func TestHandlersReadAuthenticationFromRuntimeConfigStore(t *testing.T) {
 	cfg := config.Default()
 	cfg.Auth.MCPTokenHash = auth.HashToken("mcp-test")

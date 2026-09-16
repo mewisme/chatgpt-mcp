@@ -169,11 +169,7 @@ cgm auth admin enable
 
 Direct authenticated HTTP clients use the credential expected by that endpoint/transport. The OpenAI tunnel runtime API key is different: it authenticates the tunnel client to OpenAI and is not an MCP/Admin bearer token.
 
-Generic protected `cgm mcp http` uses OAuth as its canonical transport auth. Legacy static MCP bearer compatibility is controlled by:
-
-```bash
-cgm config set auth.mcp_legacy_bearer false
-```
+Generic protected `cgm mcp http` uses the same Direct MCP HTTP bearer token as managed `/mcp`. Secure MCP Tunnel credentials are separate.
 
 ## Network exposure
 

@@ -955,7 +955,7 @@ func (page *RuntimePage) authItem(kind string) runtimeItem {
 	}
 	fields := [][2]string{{"Enabled", fmt.Sprint(enabled)}, {"Token", configuredText}}
 	if kind == "mcp" {
-		fields = append(fields, [2]string{"OAuth", "canonical for cgm mcp http"}, [2]string{"Legacy bearer", legacyBearer})
+		fields = append(fields, [2]string{"Legacy bearer", legacyBearer})
 	}
 	fields = append(fields, [2]string{"Scope", scope}, [2]string{"Security", security})
 	return runtimeItem{row: component.Row{ID: "auth." + kind, Title: title, Description: description, Search: "auth token " + kind}, detailTitle: title, detail: detailFields(fields...)}

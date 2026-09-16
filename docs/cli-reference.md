@@ -474,13 +474,7 @@ cgm auth admin enable
 cgm auth admin disable
 ```
 
-`cgm mcp stdio` does not use OAuth transport authentication. `cgm mcp http` uses OAuth as the canonical protected transport and keeps the existing static MCP bearer only as a compatibility path controlled by `auth.mcp_legacy_bearer`.
-
-```bash
-cgm config set auth.mcp_legacy_bearer false
-```
-
-Rotating the MCP credential invalidates OAuth codes/tokens issued under the previous credential generation.
+`cgm mcp stdio` does not use HTTP bearer authentication. `cgm mcp http` uses the Direct MCP HTTP bearer token when `auth.mcp_enabled` is true.
 
 Use subcommand help for enable/disable/rotation options exposed by the current binary:
 

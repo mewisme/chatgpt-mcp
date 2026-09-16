@@ -69,15 +69,38 @@ func TestRenderDoctorReportSummary(t *testing.T) {
 	err := renderDoctorReport(&out, doctorReport{
 		Results: []doctorResult{
 			{ID: "config.source", Section: "System", Status: doctorPass, Summary: "configuration loaded"},
-			{ID: "plugin.lock", Section: "Plugins", Status: doctorFail, Summary: "broken", Error: "nope"},
+			{ID: "plugin.lock", Section: "Plugins", Status: doctorFail, Summary: "broken", Error: "nope", Hint: "run cgm plugin verify"},
+			{ID: "tunnel.collection", Section: "Integrations", Status: doctorSkip, Summary: "no Secure MCP tunnels configured"},
 		},
-		Pass: 1, Fail: 1,
+		Pass: 1, Fail: 1, Skip: 1,
 	}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	text := out.String()
-	for _, expected := range []string{"System", "Plugins", "PASS", "FAIL", "config.source", "Summary: 1 passed, 0 warnings, 1 failed, 0 skipped", "nope"} {
+	for _, expected := range []string{"System", "Plugins", "PASS", "FAIL", "config.source", "Summary: 1 passed, 0 warnings, 1 failed, 1 skipped", "nope", "run cgm plugin verify"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("output %q missing %q", text, expected)
+		}
+	}
+	if strings.Contains(text, "tunnel.collection") || strings.Contains(text, "no Secure MCP tunnels") {
+		t.Fatalf("skip shown without verbose: %q", text)
+	}
+}
+
+func TestRenderDoctorReportVerboseShowsSkipAndID(t *testing.T) {
+	var out bytes.Buffer
+	err := renderDoctorReport(&out, doctorReport{
+		Results: []doctorResult{
+			{ID: "tunnel.collection", Label: "Secure MCP tunnels", Section: "Integrations", Status: doctorSkip, Summary: "no Secure MCP tunnels configured"},
+		},
+		Skip: 1,
+	}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := out.String()
+	for _, expected := range []string{"SKIP", "Secure MCP tunnels", "tunnel.collection", "no Secure MCP tunnels configured"} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("output %q missing %q", text, expected)
 		}

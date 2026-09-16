@@ -2,13 +2,16 @@
 
 Use this guide for common runtime, service, tunnel, configuration, and connectivity failures.
 
-Start with these three commands:
+Start with these commands:
 
 ```bash
+cgm doctor
+cgm doctor --verbose
 cgm status
-cgm tunnel status
 cgm logs --debug -n 200
 ```
+
+`cgm doctor` is the whole-application diagnostic. Collect its text or JSON output before running narrower subsystem commands. A default doctor run is read-only and does not repair state. Exit `0` can still include warnings; a non-zero exit means at least one check failed.
 
 ## MCP session needs to work across multiple workspaces
 
@@ -428,6 +431,7 @@ cgm logs --component NOTIFICATION --debug -n 50
 Collect these without copying secrets:
 
 ```bash
+cgm doctor --verbose
 cgm --version
 cgm status
 cgm tunnel status

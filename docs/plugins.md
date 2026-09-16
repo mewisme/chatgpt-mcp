@@ -193,7 +193,9 @@ Run:
 cgm doctor
 ```
 
-Startup and `doctor` reconcile plugin activation state before capabilities are used. Global desired/lock files and each workspace `.cgm/plugins` store reconcile independently. Reconciliation is fail-safe:
+`cgm doctor` reports plugin lock, payload, desired-state, compatibility, host-prerequisite, and registry health without mutating activation state. A structurally corrupt lock is a failure; doctor does not quarantine or disable plugins.
+
+Startup still reconciles plugin activation state before capabilities are used. Global desired/lock files and each workspace `.cgm/plugins` store reconcile independently. Reconciliation is fail-safe:
 
 - a structurally corrupt lock file is quarantined as `plugins.lock.json.corrupt-<timestamp>` and replaced with an empty lock;
 - desired state in `plugins.json` is preserved;
@@ -201,7 +203,7 @@ Startup and `doctor` reconcile plugin activation state before capabilities are u
 - if a provider becomes unavailable, enabled dependents that require its capability are also disabled;
 - reconciliation never converts an untrusted payload into trusted activation state.
 
-After recovery, explicitly repair/install the desired plugins and run `cgm plugin verify <id>` before relying on them again.
+Repair remains an explicit plugin lifecycle action (`cgm plugin verify`, reinstall, enable/disable). After recovery, explicitly repair/install the desired plugins and run `cgm plugin verify <id>` before relying on them again.
 
 ## Manifest authoring
 

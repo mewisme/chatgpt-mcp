@@ -46,6 +46,14 @@ func (err *HostPrerequisiteError) Error() string {
 	return builder.String()
 }
 
+func CheckHostPrerequisite(ctx context.Context, artifact PlatformArtifact) error {
+	if !artifact.HostBacked() {
+		return nil
+	}
+	_, err := preflightHostExecutable(ctx, artifact)
+	return err
+}
+
 func resolveHostExecutable(artifact PlatformArtifact) (string, error) {
 	if !artifact.HostBacked() || artifact.Host == nil {
 		return "", errors.New("plugin platform is not host-backed")

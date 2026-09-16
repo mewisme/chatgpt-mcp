@@ -20,17 +20,20 @@ const (
 
 type doctorResult struct {
 	ID         string        `json:"id"`
+	Label      string        `json:"label,omitempty"`
 	Section    string        `json:"section"`
 	Status     doctorStatus  `json:"status"`
 	Summary    string        `json:"summary"`
 	Details    []string      `json:"details,omitempty"`
 	Error      string        `json:"error,omitempty"`
+	Hint       string        `json:"hint,omitempty"`
 	Duration   time.Duration `json:"-"`
 	DurationMS int64         `json:"duration_ms,omitempty"`
 }
 
 type doctorCheck struct {
 	ID       string
+	Label    string
 	Section  string
 	Requires []string
 	Timeout  time.Duration
@@ -53,7 +56,7 @@ func runDoctorChecks(ctx context.Context, checks []doctorCheck) doctorReport {
 	report := doctorReport{Results: make([]doctorResult, 0, len(checks))}
 	for _, check := range checks {
 		started := time.Now()
-		result := doctorResult{ID: check.ID, Section: check.Section}
+		result := doctorResult{ID: check.ID, Label: check.Label, Section: check.Section}
 		skipReason := ""
 		for _, req := range check.Requires {
 			prev, ok := byID[req]
@@ -73,6 +76,9 @@ func runDoctorChecks(ctx context.Context, checks []doctorCheck) doctorReport {
 			result = check.Run(runCtx)
 			cancel()
 			result.ID = check.ID
+			if result.Label == "" {
+				result.Label = check.Label
+			}
 			if result.Section == "" {
 				result.Section = check.Section
 			}
@@ -98,6 +104,9 @@ func runDoctorChecks(ctx context.Context, checks []doctorCheck) doctorReport {
 func renderDoctorReport(out io.Writer, report doctorReport, verbose bool) error {
 	current := ""
 	for _, item := range report.Results {
+		if !verbose && item.Status == doctorSkip {
+			continue
+		}
 		if item.Section != current {
 			if current != "" {
 				fmt.Fprintln(out)
@@ -105,9 +114,13 @@ func renderDoctorReport(out io.Writer, report doctorReport, verbose bool) error 
 			fmt.Fprintln(out, cliHeading(item.Section))
 			current = item.Section
 		}
-		fmt.Fprintf(out, "  %-4s  %-28s  %s\n", strings.ToUpper(string(item.Status)), item.ID, item.Summary)
+		label := item.Label
+		if label == "" {
+			label = item.ID
+		}
+		fmt.Fprintf(out, "  %-4s  %-28s  %s\n", strings.ToUpper(string(item.Status)), label, item.Summary)
 		if verbose {
-			fmt.Fprintf(out, "        duration %dms\n", item.DurationMS)
+			fmt.Fprintf(out, "        %s · duration %dms\n", item.ID, item.DurationMS)
 		}
 		if verbose || item.Status != doctorPass {
 			for _, detail := range item.Details {
@@ -115,6 +128,9 @@ func renderDoctorReport(out io.Writer, report doctorReport, verbose bool) error 
 			}
 			if item.Error != "" {
 				fmt.Fprintf(out, "        %s\n", item.Error)
+			}
+			if item.Hint != "" {
+				fmt.Fprintf(out, "        %s\n", item.Hint)
 			}
 		}
 	}

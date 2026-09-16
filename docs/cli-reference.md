@@ -251,7 +251,25 @@ cgm plugin registry add community https://plugins.example.com/releases \
 cgm plugin registry remove community
 ```
 
-Use `cgm doctor` to reconcile activation state and diagnose a corrupt or unverifiable plugin lock. See [Plugins](plugins.md) for authoring, security contracts, desired-state portability, rollback, and recovery.
+See [Plugins](plugins.md) for authoring, security contracts, desired-state portability, rollback, and recovery.
+
+## Diagnose the local installation
+
+```bash
+cgm doctor
+cgm doctor --verbose
+cgm doctor --log-format json
+```
+
+`cgm doctor` is the canonical whole-application diagnostic. A default run is read-only: it never repairs, quarantines, installs, rotates tokens, sends notifications, or starts tunnels.
+
+It inspects install/config/storage, runtime control and managed services, listener/HTTP health, Direct MCP HTTP and Admin authentication, shell and tool registry, workspaces and Project Context, plugins (lock/payloads/desired/compatibility/host/registry), upstream MCP servers, Secure MCP Tunnel collection, CF Tunnel MCP/Admin prerequisites, notifications, runtime journal, and update metadata.
+
+Results are `pass`, `warn`, `fail`, or `skip`. Disabled or unconfigured optional features are skipped, not treated as failures. Exit `0` when there are no `fail` results (warnings are allowed). Any `fail` makes the command return non-zero after the full report. External probes use short timeouts and clean up opened connections. JSON output uses stable check IDs; text output prefers human labels and hides skips unless `--verbose`.
+
+Network/update-server unavailability is normally a warning. Secrets, hashes, bearer values, and runtime-control tokens are never printed.
+
+See [Troubleshooting](troubleshooting.md).
 
 ## Control approval requests
 

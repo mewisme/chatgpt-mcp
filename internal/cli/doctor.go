@@ -15,6 +15,8 @@ import (
 	pluginpkg "go.mewis.me/chatgpt-mcp/internal/plugin"
 	"go.mewis.me/chatgpt-mcp/internal/redact"
 	shellruntime "go.mewis.me/chatgpt-mcp/internal/shell"
+	"go.mewis.me/chatgpt-mcp/internal/state"
+	"go.mewis.me/chatgpt-mcp/internal/upstream"
 	"go.mewis.me/chatgpt-mcp/internal/version"
 )
 
@@ -32,6 +34,9 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 	}
 	state := &doctorState{}
 	report := runDoctorChecks(parentCtx, state.checks())
+	if state.upstreams != nil {
+		_ = state.upstreams.Shutdown(parentCtx)
+	}
 	format, err := commandLogFormat(cmd)
 	if err != nil {
 		return err
@@ -52,33 +57,45 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 }
 
 type doctorState struct {
-	cfg   config.Config
-	store *pluginpkg.Store
+	cfg       config.Config
+	store     *pluginpkg.Store
+	lock      pluginpkg.LockFile
+	upstreams *upstream.Manager
 }
 
 func (d *doctorState) checks() []doctorCheck {
 	checks := []doctorCheck{
-		{ID: "install.current", Section: "System", Run: d.checkInstall},
-		{ID: "config.source", Section: "System", Run: d.checkConfigSource},
-		{ID: "config.integrity", Section: "System", Requires: []string{"config.source"}, Run: d.checkConfigIntegrity},
-		{ID: "config.validate", Section: "System", Requires: []string{"config.source"}, Run: d.checkConfigValidate},
-		{ID: "config.security", Section: "System", Requires: []string{"config.validate"}, Run: d.checkConfigSecurity},
-		{ID: "storage.paths", Section: "System", Requires: []string{"config.source"}, Run: d.checkStoragePaths},
-		{ID: "plugin.lock", Section: "Plugins", Run: d.checkPluginLock},
-		{ID: "plugin.desired", Section: "Plugins", Requires: []string{"plugin.lock"}, Run: d.checkPluginDesired},
-		{ID: "plugin.capabilities", Section: "Plugins", Requires: []string{"plugin.lock"}, Run: d.checkPluginCapabilities},
-		{ID: "plugin.registry", Section: "Plugins", Requires: []string{"plugin.lock"}, Timeout: 3 * time.Second, Run: d.checkPluginRegistry},
-		{ID: "runtime.control", Section: "Runtime", Requires: []string{"config.source"}, Run: d.checkRuntimeControl},
-		{ID: "service.user", Section: "Runtime", Requires: []string{"config.source"}, Run: func(ctx context.Context) doctorResult { return d.checkService(ctx, "user") }},
-		{ID: "service.system", Section: "Runtime", Requires: []string{"config.source"}, Run: func(ctx context.Context) doctorResult { return d.checkService(ctx, "system") }},
-		{ID: "network.plan", Section: "Runtime", Requires: []string{"config.validate"}, Run: d.checkNetworkPlan},
-		{ID: "network.health", Section: "Runtime", Requires: []string{"network.plan", "runtime.control"}, Timeout: 3 * time.Second, Run: d.checkNetworkHealth},
-		{ID: "auth.mcp", Section: "Runtime", Requires: []string{"config.validate"}, Run: d.checkAuthMCP},
-		{ID: "auth.admin", Section: "Runtime", Requires: []string{"config.validate"}, Run: d.checkAuthAdmin},
-		{ID: "shell.provider", Section: "Runtime", Requires: []string{"config.source"}, Run: d.checkShellProvider},
-		{ID: "notification.provider", Section: "Integrations", Requires: []string{"config.source"}, Timeout: time.Second, Run: d.checkNotificationProvider},
+		{ID: "install.current", Label: "install", Section: "System", Run: d.checkInstall},
+		{ID: "config.source", Label: "config source", Section: "System", Run: d.checkConfigSource},
+		{ID: "config.integrity", Label: "config integrity", Section: "System", Requires: []string{"config.source"}, Run: d.checkConfigIntegrity},
+		{ID: "config.validate", Label: "config validate", Section: "System", Requires: []string{"config.source"}, Run: d.checkConfigValidate},
+		{ID: "config.security", Label: "config security", Section: "System", Requires: []string{"config.validate"}, Run: d.checkConfigSecurity},
+		{ID: "storage.paths", Label: "storage", Section: "System", Requires: []string{"config.source"}, Run: d.checkStoragePaths},
+		{ID: "observability.events", Label: "runtime journal", Section: "System", Requires: []string{"storage.paths"}, Run: d.checkRuntimeJournal},
+		{ID: "plugin.lock", Label: "plugin lock", Section: "Plugins", Run: d.checkPluginLock},
+		{ID: "plugin.payloads", Label: "plugin payloads", Section: "Plugins", Requires: []string{"plugin.lock"}, Run: d.checkPluginPayloads},
+		{ID: "plugin.desired", Label: "plugin desired", Section: "Plugins", Requires: []string{"plugin.lock"}, Run: d.checkPluginDesired},
+		{ID: "plugin.compatibility", Label: "plugin compatibility", Section: "Plugins", Requires: []string{"plugin.lock"}, Run: d.checkPluginCompatibility},
+		{ID: "plugin.host", Label: "plugin host", Section: "Plugins", Requires: []string{"plugin.payloads"}, Timeout: 3 * time.Second, Run: d.checkPluginHost},
+		{ID: "plugin.capabilities", Label: "plugin capabilities", Section: "Plugins", Requires: []string{"plugin.lock"}, Run: d.checkPluginCapabilities},
+		{ID: "plugin.admin-ui", Label: "Admin UI plugin", Section: "Plugins", Requires: []string{"plugin.lock", "config.source"}, Run: d.checkPluginAdminUI},
+		{ID: "plugin.registry", Label: "plugin registry", Section: "Plugins", Requires: []string{"plugin.lock"}, Timeout: 3 * time.Second, Run: d.checkPluginRegistry},
+		{ID: "runtime.control", Label: "runtime control", Section: "Runtime", Requires: []string{"config.source"}, Run: d.checkRuntimeControl},
+		{ID: "service.user", Label: "user service", Section: "Runtime", Requires: []string{"config.source"}, Run: func(ctx context.Context) doctorResult { return d.checkService(ctx, "user") }},
+		{ID: "service.system", Label: "system service", Section: "Runtime", Requires: []string{"config.source"}, Run: func(ctx context.Context) doctorResult { return d.checkService(ctx, "system") }},
+		{ID: "network.plan", Label: "listener plan", Section: "Runtime", Requires: []string{"config.validate"}, Run: d.checkNetworkPlan},
+		{ID: "network.health", Label: "HTTP health", Section: "Runtime", Requires: []string{"network.plan", "runtime.control"}, Timeout: 3 * time.Second, Run: d.checkNetworkHealth},
+		{ID: "auth.mcp", Label: "Direct MCP HTTP auth", Section: "Runtime", Requires: []string{"config.validate"}, Run: d.checkAuthMCP},
+		{ID: "auth.admin", Label: "Admin auth", Section: "Runtime", Requires: []string{"config.validate"}, Run: d.checkAuthAdmin},
+		{ID: "shell.provider", Label: "Bash", Section: "Runtime", Requires: []string{"config.source"}, Run: d.checkShellProvider},
+		{ID: "tools.registry", Label: "tool registry", Section: "Runtime", Requires: []string{"config.source"}, Run: d.checkToolsRegistry},
+		{ID: "tunnel.collection", Label: "Secure MCP tunnels", Section: "Integrations", Requires: []string{"config.validate"}, Run: d.checkTunnelCollection},
+		{ID: "cf-tunnel.mcp", Label: "CF Tunnel MCP", Section: "Integrations", Requires: []string{"config.source"}, Run: d.checkCFTunnelMCP},
+		{ID: "cf-tunnel.admin", Label: "CF Tunnel Admin", Section: "Integrations", Requires: []string{"config.source"}, Run: d.checkCFTunnelAdmin},
+		{ID: "notification.provider", Label: "notifications", Section: "Integrations", Requires: []string{"config.source"}, Timeout: time.Second, Run: d.checkNotificationProvider},
+		{ID: "update.metadata", Label: "updates", Section: "Integrations", Timeout: 5 * time.Second, Run: d.checkUpdate},
 	}
-	return append(checks, d.workspaceChecks()...)
+	return append(append(checks, d.workspaceChecks()...), d.upstreamChecks()...)
 }
 
 func (d *doctorState) checkConfigSource(ctx context.Context) doctorResult {
@@ -103,31 +120,20 @@ func (d *doctorState) checkPluginLock(ctx context.Context) doctorResult {
 		return doctorResult{Status: doctorFail, Summary: "plugin store unavailable", Error: redact.Text(err.Error())}
 	}
 	d.store = store
-	reconcile, err := pluginpkg.Reconcile(store)
+	lock, err := pluginpkg.LoadLock(store.Layout().LockPath())
 	if err != nil {
-		return doctorResult{Status: doctorFail, Summary: "plugin lock could not be inspected", Error: redact.Text(err.Error())}
+		hint := "back up plugins.lock.json, then run cgm plugin verify"
+		if errors.Is(err, pluginpkg.ErrLockCorrupt) {
+			hint = "doctor does not quarantine the lock; fix or replace plugins.lock.json, then run cgm plugin verify"
+		}
+		return doctorResult{Status: doctorFail, Summary: "plugin lock could not be read", Error: redact.Text(err.Error()), Hint: hint}
 	}
+	d.lock = lock
 	details := []string{}
-	if reconcile.QuarantinePath != "" {
-		details = append(details, "quarantine "+reconcile.QuarantinePath)
+	if d.store != nil && len(d.store.Builtins) > 0 {
+		details = append(details, fmt.Sprintf("%d compiled builtins", len(d.store.Builtins)))
 	}
-	if len(reconcile.Disabled) > 0 {
-		ids := make([]string, len(reconcile.Disabled))
-		for index, id := range reconcile.Disabled {
-			ids[index] = string(id)
-		}
-		details = append(details, "disabled "+strings.Join(ids, ", "))
-		for _, id := range reconcile.Disabled {
-			if reason := reconcile.Issues[id]; reason != "" {
-				details = append(details, string(id)+" "+redact.Text(reason))
-			}
-		}
-		return doctorResult{Status: doctorWarn, Summary: "unsafe plugin activation state disabled", Details: details}
-	}
-	if reconcile.CorruptLock {
-		return doctorResult{Status: doctorWarn, Summary: "corrupt plugin lock quarantined; plugins require explicit repair", Details: details}
-	}
-	return doctorResult{Status: doctorPass, Summary: "plugin lock and active payload metadata verified", Details: details}
+	return doctorResult{Status: doctorPass, Summary: fmt.Sprintf("plugin lock decoded (%d entries)", len(lock.Plugins)), Details: details}
 }
 
 func (d *doctorState) checkPluginDesired(ctx context.Context) doctorResult {
@@ -225,7 +231,11 @@ func (d *doctorState) checkShellProvider(ctx context.Context) doctorResult {
 }
 
 func (d *doctorState) checkNotificationProvider(ctx context.Context) doctorResult {
-	available := notification.PlatformProvider().Available(ctx)
+	if err := notification.ValidateSettings(d.cfg.Notifications); err != nil {
+		return doctorResult{Status: doctorFail, Summary: "notification settings are invalid", Error: redact.Text(err.Error())}
+	}
+	provider := notification.PlatformProvider()
+	available := provider.Available(ctx)
 	if !d.cfg.Notifications.Enabled {
 		summary := "desktop notifications disabled"
 		if !available {
@@ -234,9 +244,29 @@ func (d *doctorState) checkNotificationProvider(ctx context.Context) doctorResul
 		return doctorResult{Status: doctorSkip, Summary: summary}
 	}
 	if !available {
-		return doctorResult{Status: doctorWarn, Summary: "desktop notifications enabled but provider unavailable"}
+		return doctorResult{Status: doctorWarn, Summary: "desktop notifications enabled but provider unavailable", Hint: "install a desktop notifier or disable notifications.enabled"}
 	}
-	return doctorResult{Status: doctorPass, Summary: "desktop notification provider available"}
+	caps := provider.Capabilities(ctx)
+	details := []string{}
+	if caps.Notification {
+		details = append(details, "notification")
+	}
+	if caps.Actions {
+		details = append(details, "actions")
+	}
+	if caps.OpenTerminal {
+		details = append(details, "open-terminal")
+	}
+	if d.cfg.Notifications.OpenAction == notification.OpenActionAuto && !caps.Actions {
+		return doctorResult{Status: doctorWarn, Summary: "open_action=auto but the host cannot offer notification actions", Details: details}
+	}
+	active, err := state.TUIReviewerActive()
+	if err != nil {
+		details = append(details, "TUI presence "+redact.Text(err.Error()))
+	} else if active {
+		details = append(details, "TUI reviewer present")
+	}
+	return doctorResult{Status: doctorPass, Summary: "desktop notification provider available", Details: details}
 }
 
 func pluginIDsCSV(ids []pluginpkg.PluginID) string {

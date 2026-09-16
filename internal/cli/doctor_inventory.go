@@ -12,7 +12,7 @@ type doctorCoverage struct {
 var doctorAppCoverage = map[string]doctorCoverage{
 	"Config":        {Checks: []string{"config.source", "config.integrity", "config.validate", "config.security"}},
 	"MCP":           {Checks: []string{"network.mcp"}},
-	"Upstream":      {Checks: []string{"upstream.health"}},
+	"Upstream":      {Checks: []string{"upstream.store", "upstream.health"}},
 	"Tools":         {Parent: "tools.registry", Note: "tools.Runtime fields have their own inventory"},
 	"Activity":      {Parent: "observability.events"},
 	"Tunnels":       {Checks: []string{"tunnel.collection"}},
@@ -37,7 +37,7 @@ var doctorToolsCoverage = map[string]doctorCoverage{
 	"Approvals":        {Parent: "notification.provider", Note: "approval health is review-path plus runtime bootstrap"},
 	"Executions":       {Parent: "shell.provider"},
 	"Hooks":            {Parent: "plugin.lock"},
-	"PluginStore":      {Checks: []string{"plugin.lock", "plugin.desired", "plugin.capabilities", "plugin.registry"}},
+	"PluginStore":      {Checks: []string{"plugin.lock", "plugin.desired", "plugin.capabilities", "plugin.registry", "plugin.payloads", "plugin.compatibility", "plugin.host", "plugin.admin-ui"}},
 	"Shell":            {Checks: []string{"shell.provider"}},
 	"Processes":        {Parent: "shell.provider"},
 	"LoopGuard":        {Parent: "tools.registry"},

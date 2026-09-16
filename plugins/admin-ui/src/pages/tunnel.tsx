@@ -3,6 +3,7 @@ import {
   Cloud,
   KeyRound,
   Network,
+  Plus,
   Power,
   RefreshCw,
   ShieldCheck,
@@ -50,6 +51,7 @@ import {
 import {
   adminApi,
   type LocalTunnel,
+  type LocalTunnelRequest,
   type ManagedTunnel,
   type ManagedTunnelCreateRequest,
   type ManagedTunnelUpdateRequest,
@@ -159,6 +161,43 @@ export function TunnelPage() {
     }
   }
 
+  async function attachLocal(request: LocalTunnelRequest) {
+    setBusy("local:attach")
+    try {
+      const item = await adminApi.attachLocalTunnel(request)
+      setLocals((items) => [
+        ...items.filter((current) => current.id !== item.id),
+        item,
+      ])
+      setMessage(`Tunnel ${item.id} attached.`)
+      setError("")
+    } catch (value) {
+      setError(errorText(value))
+      setMessage("")
+      throw value
+    } finally {
+      setBusy("")
+    }
+  }
+
+  async function updateLocal(id: string, request: LocalTunnelRequest) {
+    setBusy(`local:update:${id}`)
+    try {
+      const item = await adminApi.updateLocalTunnel(id, request)
+      setLocals((items) =>
+        items.map((current) => (current.id === item.id ? item : current))
+      )
+      setMessage(`Tunnel ${item.id} updated.`)
+      setError("")
+    } catch (value) {
+      setError(errorText(value))
+      setMessage("")
+      throw value
+    } finally {
+      setBusy("")
+    }
+  }
+
   async function addAdmin(request: TunnelAdminProfileRequest) {
     setBusy("admin:add")
     try {
@@ -168,6 +207,24 @@ export function TunnelPage() {
       setError("")
     } catch (value) {
       setError(errorText(value))
+      throw value
+    } finally {
+      setBusy("")
+    }
+  }
+
+  async function updateAdmin(id: string, request: TunnelAdminProfileRequest) {
+    setBusy(`admin:update:${id}`)
+    try {
+      const item = await adminApi.updateTunnelAdminProfile(id, request)
+      setAdmins((items) =>
+        items.map((current) => (current.id === id ? item : current))
+      )
+      setMessage(`Admin profile ${item.id} updated.`)
+      setError("")
+    } catch (value) {
+      setError(errorText(value))
+      setMessage("")
       throw value
     } finally {
       setBusy("")
@@ -350,8 +407,11 @@ export function TunnelPage() {
           <TabsContent value="local">
             <LocalTunnelsPanel
               items={locals}
+              admins={admins}
               busy={busy}
               onAction={localAction}
+              onAttach={attachLocal}
+              onUpdate={updateLocal}
             />
           </TabsContent>
           <TabsContent value="admin">
@@ -360,6 +420,7 @@ export function TunnelPage() {
               locals={locals}
               busy={busy}
               onAdd={addAdmin}
+              onUpdate={updateAdmin}
               onVerify={verifyAdmin}
               onRemove={removeAdmin}
             />
@@ -390,122 +451,314 @@ export function TunnelPage() {
 
 function LocalTunnelsPanel({
   items,
+  admins,
   busy,
   onAction,
+  onAttach,
+  onUpdate,
 }: {
   items: LocalTunnel[]
+  admins: TunnelAdminProfile[]
   busy: string
   onAction: (
     id: string,
     action: "enable" | "disable" | "start" | "stop" | "detach"
   ) => Promise<void>
+  onAttach: (request: LocalTunnelRequest) => Promise<void>
+  onUpdate: (id: string, request: LocalTunnelRequest) => Promise<void>
 }) {
-  if (!items.length)
-    return (
+  const [editing, setEditing] = useState("")
+  const [id, setID] = useState("")
+  const [key, setKey] = useState("")
+  const [enabled, setEnabled] = useState(true)
+  const [admin, setAdmin] = useState("none")
+  const [org, setOrg] = useState("")
+  const [controlPlane, setControlPlane] = useState("")
+  const creating = editing === "new"
+  function closeForm() {
+    setEditing("")
+    setID("")
+    setKey("")
+    setEnabled(true)
+    setAdmin("none")
+    setOrg("")
+    setControlPlane("")
+  }
+  function openCreate() {
+    setEditing("new")
+    setID("")
+    setKey("")
+    setEnabled(true)
+    setAdmin("none")
+    setOrg("")
+    setControlPlane("")
+  }
+  function openEdit(item: LocalTunnel) {
+    setEditing(item.id)
+    setID(item.id)
+    setKey("")
+    setEnabled(item.enabled)
+    setAdmin(item.admin_profile_id || "none")
+    setOrg(item.organization_id || "")
+    setControlPlane(item.control_plane_base_url || "")
+  }
+  async function save() {
+    const request: LocalTunnelRequest = {
+      id: id.trim(),
+      enabled,
+      api_key: key.trim() || undefined,
+      admin_profile_id: admin === "none" ? undefined : admin,
+      organization_id: org.trim() || undefined,
+      control_plane_base_url: controlPlane.trim() || undefined,
+    }
+    if (creating) await onAttach(request)
+    else await onUpdate(editing, request)
+    closeForm()
+  }
+  return (
+    <div className="space-y-4">
       <Card>
         <CardHeader>
-          <CardTitle>Local tunnel instances</CardTitle>
-          <CardDescription>
-            No tunnels are attached. Attach one from Managed tunnels.
-          </CardDescription>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <CardTitle>Local tunnel instances</CardTitle>
+              <CardDescription>
+                {items.length
+                  ? "Each attached runtime key is an independent ingress."
+                  : "No tunnels are attached. Add a local runtime key or attach one from Managed tunnels."}
+              </CardDescription>
+            </div>
+            <Button
+              disabled={Boolean(busy)}
+              size="sm"
+              onClick={() => (editing ? closeForm() : openCreate())}
+            >
+              {editing ? (
+                "Cancel"
+              ) : (
+                <>
+                  <Plus />
+                  Add local tunnel
+                </>
+              )}
+            </Button>
+          </div>
         </CardHeader>
-      </Card>
-    )
-  return (
-    <div className="grid gap-4 xl:grid-cols-2">
-      {items.map((item) => {
-        const active = item.status.running || item.status.restarting
-        const state = tunnelState(item)
-        return (
-          <Card key={item.id}>
-            <CardHeader>
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <CardTitle className="font-mono text-base">
+        {editing ? (
+          <CardContent className="grid gap-4 md:grid-cols-2">
+            <ConfigField
+              label="Tunnel ID"
+              description="OpenAI tunnel identifier for this local attachment."
+            >
+              <Input
+                aria-label="Tunnel ID"
+                disabled={!creating}
+                value={id}
+                onChange={(event) => setID(event.target.value)}
+                placeholder="tun_..."
+              />
+            </ConfigField>
+            <ConfigField
+              label="Runtime API key"
+              description={
+                creating
+                  ? "OpenAI key with Tunnels Read + Use permissions."
+                  : "Leave blank to keep the stored key."
+              }
+            >
+              <Input
+                aria-label="Runtime API key"
+                type="password"
+                autoComplete="off"
+                value={key}
+                onChange={(event) => setKey(event.target.value)}
+              />
+            </ConfigField>
+            <ConfigField
+              label="Admin profile"
+              description="Optional management credential linked to this attachment."
+            >
+              <Select value={admin} onValueChange={setAdmin}>
+                <SelectTrigger aria-label="Admin profile" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">None</SelectItem>
+                  {admins.map((item) => (
+                    <SelectItem key={item.id} value={item.id}>
                       {item.id}
-                    </CardTitle>
-                    <Badge
-                      variant={
-                        item.status.ready
-                          ? "default"
-                          : active
-                            ? "secondary"
-                            : "outline"
-                      }
-                    >
-                      {item.status.restarting ||
-                      (item.status.running && !item.status.ready) ? (
-                        <Spinner className="size-3" />
-                      ) : null}
-                      {state}
-                    </Badge>
-                  </div>
-                  <CardDescription className="mt-1">
-                    {item.admin_profile_id
-                      ? `Admin profile: ${item.admin_profile_id}`
-                      : "Runtime-only attachment"}
-                  </CardDescription>
-                </div>
-                <Cloud className="size-5 text-muted-foreground" />
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </ConfigField>
+            <ConfigField
+              label="Organization ID"
+              description="Optional organization pinned on this runtime key."
+            >
+              <Input
+                aria-label="Organization ID"
+                value={org}
+                onChange={(event) => setOrg(event.target.value)}
+              />
+            </ConfigField>
+            <ConfigField
+              label="Control plane base URL"
+              description="Optional control plane override."
+            >
+              <Input
+                aria-label="Control plane base URL"
+                value={controlPlane}
+                onChange={(event) => setControlPlane(event.target.value)}
+                placeholder="Default"
+              />
+            </ConfigField>
+            <Field orientation="horizontal" className="rounded-lg border p-3">
+              <div className="min-w-0 flex-1">
+                <FieldLabel>Enabled</FieldLabel>
+                <FieldDescription>
+                  Disabled tunnels stay attached without connecting.
+                </FieldDescription>
               </div>
-            </CardHeader>
-            <CardContent className="grid gap-3 sm:grid-cols-2">
-              <Metric
-                label="Runtime key"
-                value={item.runtime_key_configured ? "Configured" : "Missing"}
+              <Switch
+                aria-label="Enabled"
+                checked={enabled}
+                onCheckedChange={setEnabled}
               />
-              <Metric
-                label="Organization"
-                value={item.organization_id || "-"}
-              />
-              <Metric
-                label="Control plane"
-                value={item.control_plane_base_url || "Default"}
-              />
-              <Metric
-                label="Last error"
-                value={item.status.last_error || "-"}
-              />
-            </CardContent>
-            <CardFooter className="flex flex-wrap justify-end gap-2 border-t">
-              <Button
-                aria-label={`${item.enabled ? "Disable" : "Enable"} ${item.id}`}
-                disabled={Boolean(busy)}
-                size="sm"
-                variant="outline"
-                onClick={() =>
-                  void onAction(item.id, item.enabled ? "disable" : "enable")
-                }
-              >
-                {item.enabled ? "Disable" : "Enable"}
-              </Button>
-              <Button
-                aria-label={`${active ? "Stop" : "Start"} ${item.id}`}
-                disabled={
-                  Boolean(busy) || !item.enabled || !item.runtime_key_configured
-                }
-                size="sm"
-                variant="outline"
-                onClick={() =>
-                  void onAction(item.id, active ? "stop" : "start")
-                }
-              >
-                {active ? "Stop" : "Start"}
-              </Button>
-              <Button
-                aria-label={`Detach ${item.id}`}
-                disabled={Boolean(busy)}
-                size="sm"
-                variant="outline"
-                onClick={() => void onAction(item.id, "detach")}
-              >
-                Detach
-              </Button>
-            </CardFooter>
-          </Card>
-        )
-      })}
+            </Field>
+          </CardContent>
+        ) : null}
+        {editing ? (
+          <CardFooter className="justify-end border-t">
+            <Button
+              disabled={
+                Boolean(busy) || !id.trim() || (creating && !key.trim())
+              }
+              onClick={() => void save()}
+            >
+              {creating ? "Add local tunnel" : "Save local tunnel"}
+            </Button>
+          </CardFooter>
+        ) : null}
+      </Card>
+      {items.length ? (
+        <div className="grid gap-4 xl:grid-cols-2">
+          {items.map((item) => {
+            const active = item.status.running || item.status.restarting
+            const state = tunnelState(item)
+            const name = item.status.metadata?.name?.trim()
+            const label = localTunnelLabel(item)
+            return (
+              <Card key={item.id}>
+                <CardHeader>
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <CardTitle
+                          className={name ? "text-base" : "font-mono text-base"}
+                        >
+                          {label}
+                        </CardTitle>
+                        <Badge
+                          variant={
+                            item.status.ready
+                              ? "default"
+                              : active
+                                ? "secondary"
+                                : "outline"
+                          }
+                        >
+                          {item.status.restarting ||
+                          (item.status.running && !item.status.ready) ? (
+                            <Spinner className="size-3" />
+                          ) : null}
+                          {state}
+                        </Badge>
+                      </div>
+                      <CardDescription className="mt-1">
+                        {name ? `${item.id} · ` : ""}
+                        {item.admin_profile_id
+                          ? `Admin profile: ${item.admin_profile_id}`
+                          : "Runtime-only attachment"}
+                      </CardDescription>
+                    </div>
+                    <Cloud className="size-5 text-muted-foreground" />
+                  </div>
+                </CardHeader>
+                <CardContent className="grid gap-3 sm:grid-cols-2">
+                  <Metric
+                    label="Runtime key"
+                    value={
+                      item.runtime_key_configured ? "Configured" : "Missing"
+                    }
+                  />
+                  <Metric
+                    label="Organization"
+                    value={item.organization_id || "-"}
+                  />
+                  <Metric
+                    label="Control plane"
+                    value={item.control_plane_base_url || "Default"}
+                  />
+                  <Metric
+                    label="Last error"
+                    value={item.status.last_error || "-"}
+                  />
+                </CardContent>
+                <CardFooter className="flex flex-wrap justify-end gap-2 border-t">
+                  <Button
+                    aria-label={`Edit ${item.id}`}
+                    disabled={Boolean(busy)}
+                    size="sm"
+                    variant="outline"
+                    onClick={() => openEdit(item)}
+                  >
+                    Edit
+                  </Button>
+                  <Button
+                    aria-label={`${item.enabled ? "Disable" : "Enable"} ${item.id}`}
+                    disabled={Boolean(busy)}
+                    size="sm"
+                    variant="outline"
+                    onClick={() =>
+                      void onAction(
+                        item.id,
+                        item.enabled ? "disable" : "enable"
+                      )
+                    }
+                  >
+                    {item.enabled ? "Disable" : "Enable"}
+                  </Button>
+                  <Button
+                    aria-label={`${active ? "Stop" : "Start"} ${item.id}`}
+                    disabled={
+                      Boolean(busy) ||
+                      !item.enabled ||
+                      !item.runtime_key_configured
+                    }
+                    size="sm"
+                    variant="outline"
+                    onClick={() =>
+                      void onAction(item.id, active ? "stop" : "start")
+                    }
+                  >
+                    {active ? "Stop" : "Start"}
+                  </Button>
+                  <Button
+                    aria-label={`Detach ${item.id}`}
+                    disabled={Boolean(busy)}
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void onAction(item.id, "detach")}
+                  >
+                    Detach
+                  </Button>
+                </CardFooter>
+              </Card>
+            )
+          })}
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -515,6 +768,7 @@ function AdminProfilesPanel({
   locals,
   busy,
   onAdd,
+  onUpdate,
   onVerify,
   onRemove,
 }: {
@@ -522,30 +776,61 @@ function AdminProfilesPanel({
   locals: LocalTunnel[]
   busy: string
   onAdd: (request: TunnelAdminProfileRequest) => Promise<void>
+  onUpdate: (id: string, request: TunnelAdminProfileRequest) => Promise<void>
   onVerify: (id: string) => Promise<void>
   onRemove: (id: string) => Promise<void>
 }) {
-  const [open, setOpen] = useState(false)
+  const [editing, setEditing] = useState("")
   const [id, setID] = useState("")
   const [key, setKey] = useState("")
   const [scope, setScope] = useState<AdminScopeKind>("workspace")
   const [scopeID, setScopeID] = useState("")
   const [controlPlane, setControlPlane] = useState("")
-  async function add() {
+  const creating = editing === "new"
+  function closeForm() {
+    setEditing("")
+    setID("")
+    setKey("")
+    setScope("workspace")
+    setScopeID("")
+    setControlPlane("")
+  }
+  function openCreate() {
+    setEditing("new")
+    setID("")
+    setKey("")
+    setScope("workspace")
+    setScopeID("")
+    setControlPlane("")
+  }
+  function openEdit(item: TunnelAdminProfile) {
+    setEditing(item.id)
+    setID(item.id)
+    setKey("")
+    setScope(
+      item.organization_id
+        ? "organization"
+        : item.tenant_id
+          ? "tenant"
+          : "workspace"
+    )
+    setScopeID(
+      item.organization_id || item.workspace_id || item.tenant_id || ""
+    )
+    setControlPlane(item.control_plane_base_url || "")
+  }
+  async function save() {
     const request: TunnelAdminProfileRequest = {
-      id: id.trim(),
-      admin_key: key.trim(),
+      id: (creating ? id : editing).trim(),
+      admin_key: key.trim() || undefined,
       control_plane_base_url: controlPlane.trim() || undefined,
     }
     if (scope === "organization") request.organization_id = scopeID.trim()
     else if (scope === "workspace") request.workspace_id = scopeID.trim()
     else request.tenant_id = scopeID.trim()
-    await onAdd(request)
-    setOpen(false)
-    setID("")
-    setKey("")
-    setScopeID("")
-    setControlPlane("")
+    if (creating) await onAdd(request)
+    else await onUpdate(editing, request)
+    closeForm()
   }
   return (
     <div className="space-y-4">
@@ -562,29 +847,37 @@ function AdminProfilesPanel({
             <Button
               disabled={Boolean(busy)}
               size="sm"
-              onClick={() => setOpen((value) => !value)}
+              onClick={() => (editing ? closeForm() : openCreate())}
             >
-              {open ? "Cancel" : "Add profile"}
+              {editing ? "Cancel" : "Add profile"}
             </Button>
           </div>
         </CardHeader>
-        {open ? (
+        {editing ? (
           <CardContent className="grid gap-4 md:grid-cols-2">
-            <ConfigField
-              label="Profile ID"
-              description="Local stable name used when choosing a management credential."
-            >
-              <Input
-                value={id}
-                onChange={(event) => setID(event.target.value)}
-                placeholder="work"
-              />
-            </ConfigField>
+            {creating ? (
+              <ConfigField
+                label="Profile ID"
+                description="Local stable name used when choosing a management credential."
+              >
+                <Input
+                  aria-label="Profile ID"
+                  value={id}
+                  onChange={(event) => setID(event.target.value)}
+                  placeholder="work"
+                />
+              </ConfigField>
+            ) : null}
             <ConfigField
               label="Admin key"
-              description="Stored in the tunnel secret store."
+              description={
+                creating
+                  ? "Stored in the tunnel secret store."
+                  : "Leave blank to keep the stored key."
+              }
             >
               <Input
+                aria-label="Admin key"
                 type="password"
                 autoComplete="off"
                 value={key}
@@ -617,6 +910,7 @@ function AdminProfilesPanel({
               description="OpenAI organization, workspace, or tenant ID."
             >
               <Input
+                aria-label="Scope ID"
                 value={scopeID}
                 onChange={(event) => setScopeID(event.target.value)}
               />
@@ -633,15 +927,17 @@ function AdminProfilesPanel({
             </ConfigField>
           </CardContent>
         ) : null}
-        {open ? (
+        {editing ? (
           <CardFooter className="justify-end border-t">
             <Button
               disabled={
-                Boolean(busy) || !id.trim() || !key.trim() || !scopeID.trim()
+                Boolean(busy) ||
+                !scopeID.trim() ||
+                (creating && (!id.trim() || !key.trim()))
               }
-              onClick={() => void add()}
+              onClick={() => void save()}
             >
-              Add admin profile
+              {creating ? "Add admin profile" : "Save admin profile"}
             </Button>
           </CardFooter>
         ) : null}
@@ -650,7 +946,7 @@ function AdminProfilesPanel({
         {items.map((item) => {
           const usedBy = locals
             .filter((local) => local.admin_profile_id === item.id)
-            .map((local) => local.id)
+            .map((local) => localTunnelLabel(local))
           return (
             <Card key={item.id}>
               <CardHeader>
@@ -692,6 +988,15 @@ function AdminProfilesPanel({
                 />
               </CardContent>
               <CardFooter className="justify-end gap-2 border-t">
+                <Button
+                  aria-label={`Edit ${item.id}`}
+                  disabled={Boolean(busy)}
+                  size="sm"
+                  variant="outline"
+                  onClick={() => openEdit(item)}
+                >
+                  Edit
+                </Button>
                 <Button
                   aria-label={`Verify ${item.id}`}
                   disabled={Boolean(busy) || !item.key_configured}
@@ -1310,6 +1615,9 @@ function adminScope(item: TunnelAdminProfile) {
   if (item.workspace_id) return `workspace:${item.workspace_id}`
   if (item.tenant_id) return `tenant:${item.tenant_id}`
   return "No scope"
+}
+function localTunnelLabel(item: LocalTunnel) {
+  return item.status.metadata?.name?.trim() || item.id
 }
 function tunnelState(item: LocalTunnel) {
   if (!item.enabled) return "Disabled"

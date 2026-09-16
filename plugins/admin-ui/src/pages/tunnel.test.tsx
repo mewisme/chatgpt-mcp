@@ -23,6 +23,12 @@ const localTunnels: LocalTunnel[] = [
       ready: true,
       restarting: false,
       id: "tunnel_a",
+      metadata: {
+        id: "tunnel_a",
+        name: "Work tunnel",
+        description: "Primary workspace",
+        fetched_at: "2026-09-16T00:00:00Z",
+      },
     },
   },
   {
@@ -135,6 +141,42 @@ describe("TunnelPage", () => {
       admin_profile_id: "work",
       status: { ...localTunnels[0].status, id: "tunnel_remote" },
     })
+    vi.spyOn(adminApi, "attachLocalTunnel").mockImplementation(
+      async (request) => ({
+        id: request.id,
+        enabled: request.enabled,
+        runtime_key_configured: Boolean(request.api_key),
+        admin_profile_id: request.admin_profile_id,
+        organization_id: request.organization_id,
+        control_plane_base_url: request.control_plane_base_url,
+        status: {
+          provider: "openai",
+          enabled: request.enabled,
+          running: false,
+          ready: false,
+          restarting: false,
+          id: request.id,
+        },
+      })
+    )
+    vi.spyOn(adminApi, "updateLocalTunnel").mockImplementation(
+      async (id, request) =>
+        localWith(id, {
+          enabled: request.enabled,
+          admin_profile_id: request.admin_profile_id,
+          organization_id: request.organization_id,
+          control_plane_base_url: request.control_plane_base_url,
+        })
+    )
+    vi.spyOn(adminApi, "updateTunnelAdminProfile").mockImplementation(
+      async (id, request) => ({
+        ...adminProfiles.find((item) => item.id === id)!,
+        organization_id: request.organization_id,
+        workspace_id: request.workspace_id,
+        tenant_id: request.tenant_id,
+        control_plane_base_url: request.control_plane_base_url,
+      })
+    )
   })
 
   afterEach(() => vi.restoreAllMocks())
@@ -143,7 +185,10 @@ describe("TunnelPage", () => {
     const user = userEvent.setup()
     render(<TunnelPage />)
 
-    expect(await screen.findByText("tunnel_a")).toBeInTheDocument()
+    expect(await screen.findByText("Work tunnel")).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Stop tunnel_a" })
+    ).toBeInTheDocument()
     expect(screen.getByText("tunnel_b")).toBeInTheDocument()
     expect(screen.getByText("Ready")).toBeInTheDocument()
     expect(screen.getByText("Disabled")).toBeInTheDocument()
@@ -230,11 +275,87 @@ describe("TunnelPage", () => {
       screen.queryByRole("button", { name: "Create tunnel" })
     ).not.toBeInTheDocument()
     expect(
-      screen.queryByRole("button", { name: "Edit" })
+      screen.queryByRole("button", { name: /^Edit$/ })
     ).not.toBeInTheDocument()
     expect(
       screen.queryByRole("button", { name: "Delete" })
     ).not.toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Attach" })).toBeInTheDocument()
+  })
+
+  it("attaches a local tunnel from the local panel", async () => {
+    const user = userEvent.setup()
+    render(<TunnelPage />)
+    await user.click(
+      await screen.findByRole("button", { name: "Add local tunnel" })
+    )
+    await user.type(screen.getByLabelText("Tunnel ID"), "tunnel_c")
+    await user.type(screen.getByLabelText("Runtime API key"), "sk-local")
+    await user.click(screen.getByRole("button", { name: "Add local tunnel" }))
+    await waitFor(() =>
+      expect(adminApi.attachLocalTunnel).toHaveBeenCalledWith({
+        id: "tunnel_c",
+        enabled: true,
+        api_key: "sk-local",
+      })
+    )
+    expect(await screen.findByText("tunnel_c")).toBeInTheDocument()
+    expect(screen.getByText("Work tunnel")).toBeInTheDocument()
+    expect(screen.getByText("tunnel_b")).toBeInTheDocument()
+  })
+
+  it("updates a local tunnel without replacing a blank runtime key", async () => {
+    const user = userEvent.setup()
+    render(<TunnelPage />)
+    await user.click(
+      await screen.findByRole("button", { name: "Edit tunnel_a" })
+    )
+    const org = screen.getByLabelText("Organization ID")
+    await user.clear(org)
+    await user.type(org, "org_new")
+    await user.click(screen.getByRole("button", { name: "Save local tunnel" }))
+    await waitFor(() =>
+      expect(adminApi.updateLocalTunnel).toHaveBeenCalledWith("tunnel_a", {
+        id: "tunnel_a",
+        enabled: true,
+        admin_profile_id: "work",
+        organization_id: "org_new",
+      })
+    )
+    expect(
+      vi.mocked(adminApi.updateLocalTunnel).mock.calls[0][1].api_key
+    ).toBeUndefined()
+  })
+
+  it("updates an admin profile without replacing a blank key", async () => {
+    const user = userEvent.setup()
+    render(<TunnelPage />)
+    await user.click(await screen.findByRole("tab", { name: "Admin profiles" }))
+    await user.click(screen.getByRole("button", { name: "Edit work" }))
+    const scope = screen.getByLabelText("Scope ID")
+    await user.clear(scope)
+    await user.type(scope, "org_new")
+    await user.click(screen.getByRole("button", { name: "Save admin profile" }))
+    await waitFor(() =>
+      expect(adminApi.updateTunnelAdminProfile).toHaveBeenCalledWith("work", {
+        id: "work",
+        organization_id: "org_new",
+      })
+    )
+    expect(
+      vi.mocked(adminApi.updateTunnelAdminProfile).mock.calls[0][1].admin_key
+    ).toBeUndefined()
+  })
+
+  it("requires an explicit admin profile when a managed tunnel is visible to more than one profile", async () => {
+    const user = userEvent.setup()
+    render(<TunnelPage />)
+    await user.click(
+      await screen.findByRole("tab", { name: "Managed tunnels" })
+    )
+    expect(await screen.findByText("Shared tunnel")).toBeInTheDocument()
+    const attachButtons = screen.getAllByRole("button", { name: "Attach" })
+    await user.click(attachButtons[0])
+    expect(screen.getByRole("button", { name: "Attach tunnel" })).toBeDisabled()
   })
 })

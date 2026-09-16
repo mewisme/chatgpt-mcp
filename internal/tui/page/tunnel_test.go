@@ -683,13 +683,14 @@ func TestManagedTunnelCreateEditorSectionsWrapAndFailureKeepsDraft(t *testing.T)
 	if page.managedForm == nil || page.managedForm.Name != "draft-name" || !page.Dirty() {
 		t.Fatalf("create draft=%#v dirty=%t", page.managedForm, page.Dirty())
 	}
-	updated, _ = page.Update(tunnelOperationMsg{command: TunnelManagedCreate, err: fmt.Errorf("create failed")})
+	updated, cmd := page.Update(tunnelOperationMsg{command: TunnelManagedCreate, err: fmt.Errorf("create failed")})
 	page = updated.(*TunnelPage)
+	msg, ok := cmd().(OperationMsg)
+	if !ok || msg.Phase != OperationError || !strings.Contains(msg.Message, "create failed") {
+		t.Fatalf("create failure operation=%#v", msg)
+	}
 	if page.editor == nil || page.managedForm == nil || page.managedForm.Name != "draft-name" || !page.Dirty() || page.OverlayActive() {
 		t.Fatalf("create failure editor=%v draft=%#v dirty=%t overlay=%t", page.editor != nil, page.managedForm, page.Dirty(), page.OverlayActive())
-	}
-	if view := ansi.Strip(page.View(40, 20)); !strings.Contains(view, "create failed") {
-		t.Fatalf("create failure feedback=%q", view)
 	}
 }
 
@@ -711,10 +712,11 @@ func TestManagedTunnelUpdateAndConfigureFailuresKeepDraft(t *testing.T) {
 	updated, _ = edit.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
 	edit = updated.(*TunnelPage)
 	name := edit.managedForm.Name
-	updated, _ = edit.Update(tunnelOperationMsg{command: TunnelManagedUpdate, targetID: "tunnel_one", err: fmt.Errorf("update failed")})
+	updated, cmd := edit.Update(tunnelOperationMsg{command: TunnelManagedUpdate, targetID: "tunnel_one", err: fmt.Errorf("update failed")})
 	edit = updated.(*TunnelPage)
-	if edit.managedForm == nil || edit.managedForm.Name != name || !edit.Dirty() || !strings.Contains(ansi.Strip(edit.View(52, 22)), "update failed") {
-		t.Fatalf("update failure draft=%#v dirty=%t", edit.managedForm, edit.Dirty())
+	msg, ok := cmd().(OperationMsg)
+	if !ok || msg.Phase != OperationError || edit.managedForm == nil || edit.managedForm.Name != name || !edit.Dirty() {
+		t.Fatalf("update failure draft=%#v dirty=%t msg=%#v", edit.managedForm, edit.Dirty(), msg)
 	}
 
 	configure, err := NewManagedTunnelsRouteAction(t.Context(), "tunnel_one", "", "configure")
@@ -727,11 +729,12 @@ func TestManagedTunnelUpdateAndConfigureFailuresKeepDraft(t *testing.T) {
 	}
 	configure.configureForm.RuntimeKeyMode = "manual"
 	configure.configureForm.RuntimeAPIKey = "runtime-secret-draft"
-	updated, _ = configure.Update(tunnelOperationMsg{command: TunnelManagedConfigure, targetID: "tunnel_one", err: fmt.Errorf("configure failed")})
+	updated, cmd = configure.Update(tunnelOperationMsg{command: TunnelManagedConfigure, targetID: "tunnel_one", err: fmt.Errorf("configure failed")})
 	configure = updated.(*TunnelPage)
+	msg, ok = cmd().(OperationMsg)
 	view := ansi.Strip(configure.View(44, 18))
-	if configure.configureForm == nil || configure.configureForm.RuntimeKeyMode != "manual" || configure.configureForm.RuntimeAPIKey != "runtime-secret-draft" || !strings.Contains(view, "configure failed") || strings.Contains(view, "runtime-secret-draft") {
-		t.Fatalf("configure failure draft=%#v dirty=%t view=%q", configure.configureForm, configure.Dirty(), view)
+	if !ok || msg.Phase != OperationError || configure.configureForm == nil || configure.configureForm.RuntimeKeyMode != "manual" || configure.configureForm.RuntimeAPIKey != "runtime-secret-draft" || strings.Contains(view, "runtime-secret-draft") {
+		t.Fatalf("configure failure draft=%#v dirty=%t view=%q msg=%#v", configure.configureForm, configure.Dirty(), view, msg)
 	}
 	testutil.AssertLinesFit(t, configure.View(44, 18), 44)
 }

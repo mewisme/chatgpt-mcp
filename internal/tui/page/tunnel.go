@@ -472,11 +472,11 @@ func (page *TunnelPage) finishOperation(msg tunnelOperationMsg) tea.Cmd {
 	page.overlay = tunnelOverlayNone
 	page.progress = nil
 	if msg.err != nil {
-		page.err = msg.err
+		page.err = nil
 		if page.editor != nil {
-			page.editor.SetFeedback("", msg.err)
+			page.editor.SetSubmitting(false)
 		}
-		return nil
+		return func() tea.Msg { return OperationResult("tunnel.managed.save", "Managed Tunnel", "", msg.err) }
 	}
 	switch msg.command {
 	case TunnelManagedRefresh:

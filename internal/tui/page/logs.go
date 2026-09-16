@@ -401,10 +401,11 @@ func (page *LogsPage) Update(message tea.Msg) (Model, tea.Cmd) {
 		page.events = nil
 		page.notice, page.toastNotice, page.err = "Runtime logs cleared", true, nil
 		browserCmd := page.rebuildBrowser("")
+		cleared := func() tea.Msg { return OperationResult("logs.clear", "Logs", "Runtime logs cleared", nil) }
 		if page.connected {
-			return page, browserCmd
+			return page, tea.Batch(browserCmd, cleared)
 		}
-		return page, tea.Batch(browserCmd, page.startBootstrap())
+		return page, tea.Batch(browserCmd, page.startBootstrap(), cleared)
 	case component.EditorSubmitMsg:
 		return page, page.submitFilterEditor()
 	case component.EditorCancelMsg:

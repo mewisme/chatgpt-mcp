@@ -877,17 +877,18 @@ func (page *PluginPage) finishOperation(msg pluginOperationMsg) tea.Cmd {
 	}
 	page.err = msg.err
 	if msg.err != nil {
-		return nil
+		return func() tea.Msg { return OperationResult("plugin.action", "Plugins", "", msg.err) }
 	}
 	page.notice = msg.notice
+	result := func() tea.Msg { return OperationResult("plugin.action", "Plugins", msg.notice, nil) }
 	if (msg.command == PluginUninstall || msg.command == PluginForceUninstall) && page.resourceID != "" && page.section == "" {
-		return func() tea.Msg { return NavigateMsg{Path: pluginRoutePath(page.workspaceID), Replace: true} }
+		return tea.Batch(func() tea.Msg { return NavigateMsg{Path: pluginRoutePath(page.workspaceID), Replace: true} }, result)
 	}
 	if msg.command == PluginRegistryRemove && page.resourceID != "" {
-		return func() tea.Msg { return NavigateMsg{Path: pluginRoutePath("", "registries"), Replace: true} }
+		return tea.Batch(func() tea.Msg { return NavigateMsg{Path: pluginRoutePath("", "registries"), Replace: true} }, result)
 	}
 	page.loading = true
-	return page.loadCmd()
+	return tea.Batch(result, page.loadCmd())
 }
 
 func (page *PluginPage) openHostInstall(prerequisite *pluginpkg.HostPrerequisiteError) bool {

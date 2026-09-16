@@ -7,6 +7,8 @@ import (
 	"io"
 	"strings"
 	"time"
+
+	"github.com/fatih/color"
 )
 
 type doctorStatus string
@@ -118,7 +120,7 @@ func renderDoctorReport(out io.Writer, report doctorReport, verbose bool) error 
 		if label == "" {
 			label = item.ID
 		}
-		fmt.Fprintf(out, "  %-4s  %-28s  %s\n", strings.ToUpper(string(item.Status)), label, item.Summary)
+		fmt.Fprintf(out, "  %s  %-28s  %s\n", doctorStatusText(item.Status), label, item.Summary)
 		if verbose {
 			fmt.Fprintf(out, "        %s · duration %dms\n", item.ID, item.DurationMS)
 		}
@@ -136,6 +138,20 @@ func renderDoctorReport(out io.Writer, report doctorReport, verbose bool) error 
 	}
 	fmt.Fprintf(out, "\nSummary: %d passed, %d warnings, %d failed, %d skipped\n", report.Pass, report.Warn, report.Fail, report.Skip)
 	return nil
+}
+
+func doctorStatusText(status doctorStatus) string {
+	text := fmt.Sprintf("%-4s", strings.ToUpper(string(status)))
+	switch status {
+	case doctorPass:
+		return cliStyled(color.FgHiGreen, color.Bold).Sprint(text)
+	case doctorWarn:
+		return cliStyled(color.FgHiYellow, color.Bold).Sprint(text)
+	case doctorFail:
+		return cliStyled(color.FgHiRed, color.Bold).Sprint(text)
+	default:
+		return cliDim(text)
+	}
 }
 
 func renderDoctorJSON(out io.Writer, report doctorReport) error {

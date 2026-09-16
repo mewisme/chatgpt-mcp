@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/fatih/color"
 )
 
 func TestRunDoctorChecksContinuesAfterFailure(t *testing.T) {
@@ -85,6 +87,31 @@ func TestRenderDoctorReportSummary(t *testing.T) {
 	}
 	if strings.Contains(text, "tunnel.collection") || strings.Contains(text, "no Secure MCP tunnels") {
 		t.Fatalf("skip shown without verbose: %q", text)
+	}
+}
+
+func TestRenderDoctorReportBrightStatusColors(t *testing.T) {
+	previous := color.NoColor
+	color.NoColor = false
+	t.Cleanup(func() { color.NoColor = previous })
+	t.Setenv("NO_COLOR", "")
+	var out bytes.Buffer
+	err := renderDoctorReport(&out, doctorReport{
+		Results: []doctorResult{
+			{ID: "a", Section: "System", Status: doctorPass, Summary: "ok"},
+			{ID: "b", Section: "System", Status: doctorWarn, Summary: "degraded"},
+			{ID: "c", Section: "System", Status: doctorFail, Summary: "broken"},
+		},
+		Pass: 1, Warn: 1, Fail: 1,
+	}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := out.String()
+	for _, expected := range []string{"\x1b[92;1mPASS", "\x1b[93;1mWARN", "\x1b[91;1mFAIL"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("output %q missing %q", text, expected)
+		}
 	}
 }
 

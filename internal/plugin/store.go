@@ -224,6 +224,9 @@ func (store *Store) Install(manifest Manifest, payloadSource string) (InstalledP
 		if err := writePayloadIntegrity(staging, payloadTarget); err != nil {
 			return InstalledPlugin{}, err
 		}
+		if _, err := DiscoverPayloadResources(payloadTarget); err != nil {
+			return InstalledPlugin{}, err
+		}
 	}
 	manifestData, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
@@ -371,10 +374,29 @@ func (store *Store) ActivateWithState(id PluginID, version Version, trust Activa
 	if err != nil {
 		return err
 	}
-	previous := lock
+	saved, had := lock.Plugins[id]
+	currentPayload := ""
+	if had && saved.Enabled {
+		previousInstalled, err := store.Installed(id, saved.Version)
+		if err != nil {
+			return err
+		}
+		currentPayload = previousInstalled.Payload
+	}
+	nextPayload := ""
+	if enabled {
+		nextPayload = installed.Payload
+	}
+	previous := cloneLock(lock)
 	lock.Plugins[id] = LockPlugin{Registry: trust.Registry, Publisher: trust.Publisher, Version: version, ManifestDigest: manifestDigest, ArtifactDigest: platformLockDigest(artifact), Enabled: enabled}
-	return store.writeLockAndDesired(previous, lock, func(config *Config) error {
+	return store.commitLockAndProject(previous, lock, currentPayload, nextPayload, func(config *Config) error {
 		return config.SetDesired(id, trust.Registry, version, enabled)
+	}, func(config *Config) error {
+		if !had {
+			config.RemoveDesired(id)
+			return nil
+		}
+		return config.SetDesired(id, saved.Registry, saved.Version, saved.Enabled)
 	})
 }
 
@@ -388,7 +410,6 @@ func (store *Store) SetEnabled(id PluginID, enabled bool) error {
 	if err != nil {
 		return err
 	}
-	previous := lock
 	entry, ok := lock.Plugins[id]
 	if !ok {
 		return fmt.Errorf("plugin %s is not active", id)
@@ -396,11 +417,11 @@ func (store *Store) SetEnabled(id PluginID, enabled bool) error {
 	if _, builtin := store.Builtins.Lookup(id); builtin {
 		return fmt.Errorf("%w: %s", ErrBuiltinPlugin, id)
 	}
+	installed, err := store.Installed(id, entry.Version)
+	if err != nil {
+		return err
+	}
 	if enabled {
-		installed, err := store.Installed(id, entry.Version)
-		if err != nil {
-			return err
-		}
 		digest, err := ManifestDigest(installed.Manifest)
 		if err != nil {
 			return err
@@ -431,10 +452,21 @@ func (store *Store) SetEnabled(id PluginID, enabled bool) error {
 	} else if err := store.rejectPeerDependents(id, entry.Version); err != nil {
 		return err
 	}
+	currentPayload, nextPayload := "", ""
+	if entry.Enabled {
+		currentPayload = installed.Payload
+	}
+	if enabled {
+		nextPayload = installed.Payload
+	}
+	saved := entry
+	previous := cloneLock(lock)
 	entry.Enabled = enabled
 	lock.Plugins[id] = entry
-	return store.writeLockAndDesired(previous, lock, func(config *Config) error {
+	return store.commitLockAndProject(previous, lock, currentPayload, nextPayload, func(config *Config) error {
 		return config.SetDesired(id, entry.Registry, entry.Version, enabled)
+	}, func(config *Config) error {
+		return config.SetDesired(id, saved.Registry, saved.Version, saved.Enabled)
 	})
 }
 
@@ -528,15 +560,22 @@ func (store *Store) DisableIfEnabled(id PluginID) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	previous := lock
 	entry, ok := lock.Plugins[id]
 	if !ok || !entry.Enabled {
 		return false, nil
 	}
+	installed, err := store.Installed(id, entry.Version)
+	if err != nil {
+		return false, err
+	}
+	saved := entry
+	cloned := cloneLock(lock)
 	entry.Enabled = false
 	lock.Plugins[id] = entry
-	if err := store.writeLockAndDesired(previous, lock, func(config *Config) error {
+	if err := store.commitLockAndProject(cloned, lock, installed.Payload, "", func(config *Config) error {
 		return config.SetDesired(id, entry.Registry, entry.Version, false)
+	}, func(config *Config) error {
+		return config.SetDesired(id, saved.Registry, saved.Version, saved.Enabled)
 	}); err != nil {
 		return false, err
 	}
@@ -561,6 +600,61 @@ func (store *Store) writeLockAndDesired(previous, next LockFile, mutate func(*Co
 			return errors.Join(err, fmt.Errorf("restore previous plugin lock: %w", rollbackErr))
 		}
 		return err
+	}
+	return nil
+}
+
+func (store *Store) commitLockAndProject(previous, next LockFile, currentPayload, nextPayload string, mutate, restore func(*Config) error) error {
+	if err := preflightProjectionPayloads(store.layout, currentPayload, nextPayload); err != nil {
+		return err
+	}
+	if err := store.writeLockAndDesired(previous, next, mutate); err != nil {
+		return err
+	}
+	if err := SyncProjections(store.layout, currentPayload, nextPayload); err != nil {
+		if restoreErr := store.writeLockAndDesired(next, previous, restore); restoreErr != nil {
+			return errors.Join(err, restoreErr)
+		}
+		return err
+	}
+	return nil
+}
+
+func cloneLock(lock LockFile) LockFile {
+	plugins := make(map[PluginID]LockPlugin, len(lock.Plugins))
+	for id, entry := range lock.Plugins {
+		plugins[id] = entry
+	}
+	return LockFile{Schema: lock.Schema, Plugins: plugins}
+}
+
+func unprojectLockEntries(store *Store, lock LockFile, ids []PluginID) error {
+	payloads := make([]string, 0, len(ids))
+	seen := make(map[PluginID]struct{}, len(ids))
+	for _, id := range ids {
+		if _, dup := seen[id]; dup {
+			continue
+		}
+		seen[id] = struct{}{}
+		entry, ok := lock.Plugins[id]
+		if !ok || !entry.Enabled {
+			continue
+		}
+		installed, err := store.Installed(id, entry.Version)
+		if err != nil {
+			return err
+		}
+		payloads = append(payloads, installed.Payload)
+	}
+	for _, payload := range payloads {
+		if err := preflightProjectionPayloads(store.layout, payload, ""); err != nil {
+			return err
+		}
+	}
+	for _, payload := range payloads {
+		if err := SyncProjections(store.layout, payload, ""); err != nil {
+			return err
+		}
 	}
 	return nil
 }

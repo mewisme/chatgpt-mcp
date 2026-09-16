@@ -80,11 +80,24 @@ func Reconcile(store *Store) (ReconcileReport, error) {
 			break
 		}
 	}
-	if len(disabled) == 0 {
+	for id, entry := range lock.Plugins {
+		installed, err := store.Installed(id, entry.Version)
+		if err != nil {
+			continue
+		}
+		if err := verifyProjections(store.layout, installed.Payload, entry.Enabled); err != nil {
+			if _, ok := issues[id]; !ok {
+				issues[id] = err.Error()
+			}
+		}
+	}
+	if len(disabled) == 0 && len(issues) == 0 {
 		return ReconcileReport{}, nil
 	}
-	if err := WriteLock(store.layout.LockPath(), lock); err != nil {
-		return ReconcileReport{}, err
+	if len(disabled) > 0 {
+		if err := WriteLock(store.layout.LockPath(), lock); err != nil {
+			return ReconcileReport{}, err
+		}
 	}
 	report := ReconcileReport{Disabled: make([]PluginID, 0, len(disabled)), Issues: issues}
 	for id := range disabled {

@@ -79,6 +79,51 @@ func SyncProjections(layout Layout, currentPayload, nextPayload string) error {
 	return nil
 }
 
+func preflightProjectionPayloads(layout Layout, currentPayload, nextPayload string) error {
+	if err := layout.Validate(); err != nil {
+		return err
+	}
+	current, err := loadProjectedItems(layout, currentPayload)
+	if err != nil {
+		return err
+	}
+	next, err := loadProjectedItems(layout, nextPayload)
+	if err != nil {
+		return err
+	}
+	return preflightProjections(current, next)
+}
+
+func verifyProjections(layout Layout, payloadDir string, enabled bool) error {
+	if err := layout.Validate(); err != nil {
+		return err
+	}
+	items, err := loadProjectedItems(layout, payloadDir)
+	if err != nil {
+		return err
+	}
+	for _, dest := range sortedDests(items) {
+		item := items[dest]
+		actual, exists, err := destinationDigest(item)
+		if err != nil {
+			return err
+		}
+		if enabled {
+			if !exists {
+				return fmt.Errorf("plugin %s %s projection is missing", item.Kind, item.Name)
+			}
+			if actual != item.Digest {
+				return fmt.Errorf("%w: %s %s", ErrProjectionDrift, item.Kind, item.Name)
+			}
+			continue
+		}
+		if exists && actual == item.Digest {
+			return fmt.Errorf("disabled plugin retains projected %s %s", item.Kind, item.Name)
+		}
+	}
+	return nil
+}
+
 func loadProjectedItems(layout Layout, payloadDir string) (map[string]projectedItem, error) {
 	payloadDir = strings.TrimSpace(payloadDir)
 	if payloadDir == "" {

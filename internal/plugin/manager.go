@@ -238,6 +238,10 @@ func (manager Manager) Uninstall(ctx context.Context, id PluginID, force bool) (
 		unlock()
 		return fmt.Errorf("plugin %s is required by active plugin %s; use --force to uninstall", id, blocked[0])
 	}
+	if err := unprojectLockEntries(manager.Store, lock, append([]PluginID{id}, dependents...)); err != nil {
+		unlock()
+		return err
+	}
 	if err := manager.Store.disablePeerDependents(peerDependents); err != nil {
 		unlock()
 		return err
@@ -336,7 +340,10 @@ func (manager Manager) Verify(ctx context.Context, id PluginID) (err error) {
 	if record.Registry != entry.Registry || record.Publisher != entry.Publisher || record.ManifestDigest != entry.ManifestDigest || record.ArtifactDigest != entry.ArtifactDigest {
 		return errors.New("plugin install trust does not match active lock state")
 	}
-	return manager.Store.verifyInstalledIntegrity(ctx, installed)
+	if err := manager.Store.verifyInstalledIntegrity(ctx, installed); err != nil {
+		return err
+	}
+	return verifyProjections(manager.Store.layout, installed.Payload, entry.Enabled)
 }
 
 func (manager Manager) Outdated(ctx context.Context) (result []OutdatedPlugin, err error) {

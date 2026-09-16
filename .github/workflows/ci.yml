@@ -305,7 +305,11 @@ jobs:
 
       - name: Build
         if: needs.changes.outputs.full == 'true'
-        run: go build -trimpath -o ./dist-smoke/${{ matrix.binary }} ./
+        run: go build -trimpath -ldflags "-s -w" -o ./dist-smoke/${{ matrix.binary }} ./
+
+      - name: Record stripped core size
+        if: needs.changes.outputs.full == 'true'
+        run: node -e "const fs=require('fs'); const p=process.argv[1]; console.log('stripped-core-bytes', fs.statSync(p).size, p)" ./dist-smoke/${{ matrix.binary }}
 
       - name: Runtime smoke
         if: needs.changes.outputs.full == 'true'

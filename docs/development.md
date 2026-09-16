@@ -90,6 +90,39 @@ Build:
 go build -trimpath ./
 ```
 
+## Core boundary
+
+The `cgm` / `chatgpt-mcp` binary is a secure harness. Optional provider and UI behavior lives in independently built plugins. Production core packages (`main.go` and `internal/**` imported by `.`) must not import `go.mewis.me/chatgpt-mcp/plugins/*`.
+
+Acceptable core categories:
+
+- workspace identity, containment, ControlGuard, approvals
+- MCP hosting, Admin API, runtime control, install/update, plugin trust
+- config, secrets, logging, process/service orchestration
+- core filesystem/shell/checkpoint/project-context tools
+- Git convenience tools and Node REPL (stdlib process wrappers; path/policy stay core-owned)
+- desktop notification policy and platform send helpers
+
+Denied in `go list -deps .`:
+
+- every `go.mewis.me/chatgpt-mcp/plugins/` package
+- `internal/ponytail`, `internal/caveman`, `pkg/cloudflared`
+- `github.com/openai/tunnel-client`, `github.com/quic-go/quic-go`
+- Charm TUI/Markdown stacks (`bubbletea`, `bubbles`, `huh`, `glamour`, `lipgloss`, Chroma, Goldmark)
+
+CI runs `TestCoreDepsExcludeCFTunnel` and `TestCoreAndPluginBinarySizes`. Stripped core (`-ldflags -s -w`) must stay under 40 MiB. Plugin packages keep their own `cmd/` and `build/` roots and are releasable through `plugins/workflow.json` without linking into core.
+
+```bash
+go test . -run 'TestCoreDepsExcludeCFTunnel|TestCoreAndPluginBinarySizes'
+```
+
+Official native plugins build independently, for example:
+
+```bash
+go build -trimpath -o ponytail ./plugins/ponytail/cmd/ponytail
+go build -trimpath -o tui ./plugins/tui/cmd/tui
+```
+
 ## Config isolation is a test invariant
 
 Tests and smoke tests must not use the real default/global config directory.

@@ -16,13 +16,8 @@ func TestCoreDepsExcludeCFTunnel(t *testing.T) {
 		t.Fatalf("go list -deps .: %v\n%s", err, out)
 	}
 	text := string(out)
-	for _, forbidden := range []string{
-		"go.mewis.me/chatgpt-mcp/plugins/cf-tunnel",
-		"go.mewis.me/chatgpt-mcp/plugins/secure-mcp-tunnel",
-		"go.mewis.me/chatgpt-mcp/plugins/tui",
-		"go.mewis.me/chatgpt-mcp/plugins/markdown-formatter",
-		"go.mewis.me/chatgpt-mcp/plugins/ponytail",
-		"go.mewis.me/chatgpt-mcp/plugins/caveman",
+	pluginPrefix := "go.mewis.me/chatgpt-mcp/plugins/"
+	forbidden := []string{
 		"go.mewis.me/chatgpt-mcp/internal/ponytail",
 		"go.mewis.me/chatgpt-mcp/internal/caveman",
 		"go.mewis.me/chatgpt-mcp/pkg/cloudflared",
@@ -37,14 +32,25 @@ func TestCoreDepsExcludeCFTunnel(t *testing.T) {
 		"github.com/alecthomas/chroma/v2",
 		"github.com/yuin/goldmark",
 		"github.com/yuin/goldmark-emoji",
-	} {
-		for _, line := range strings.Split(text, "\n") {
-			if line == forbidden || strings.HasPrefix(line, forbidden+"/") {
+	}
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, pluginPrefix) {
+			t.Errorf("core dependency graph includes %s", line)
+			continue
+		}
+		for _, prefix := range forbidden {
+			if line == prefix || strings.HasPrefix(line, prefix+"/") {
 				t.Errorf("core dependency graph includes %s", line)
 			}
 		}
 	}
 }
+
+const maxStrippedCoreBytes = 40 << 20
 
 func TestCoreAndPluginBinarySizes(t *testing.T) {
 	if testing.Short() {
@@ -59,7 +65,7 @@ func TestCoreAndPluginBinarySizes(t *testing.T) {
 	markdown := filepath.Join(dir, "markdown-formatter")
 	ponytail := filepath.Join(dir, "ponytail")
 	caveman := filepath.Join(dir, "caveman")
-	coreBuild := exec.Command("go", "build", "-o", core, ".")
+	coreBuild := exec.Command("go", "build", "-trimpath", "-ldflags", "-s -w", "-o", core, ".")
 	coreBuild.Dir = root
 	if out, err := coreBuild.CombinedOutput(); err != nil {
 		t.Fatalf("core build: %v\n%s", err, out)
@@ -122,7 +128,10 @@ func TestCoreAndPluginBinarySizes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("core=%d cf-tunnel=%d secure-mcp-tunnel=%d tui=%d markdown-formatter=%d ponytail=%d caveman=%d", coreInfo.Size(), pluginInfo.Size(), secureInfo.Size(), tuiInfo.Size(), markdownInfo.Size(), ponytailInfo.Size(), cavemanInfo.Size())
+	t.Logf("stripped core=%d cf-tunnel=%d secure-mcp-tunnel=%d tui=%d markdown-formatter=%d ponytail=%d caveman=%d", coreInfo.Size(), pluginInfo.Size(), secureInfo.Size(), tuiInfo.Size(), markdownInfo.Size(), ponytailInfo.Size(), cavemanInfo.Size())
+	if coreInfo.Size() > maxStrippedCoreBytes {
+		t.Fatalf("stripped core %d exceeds budget %d", coreInfo.Size(), maxStrippedCoreBytes)
+	}
 }
 
 func moduleRoot(t *testing.T) string {

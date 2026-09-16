@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"strconv"
 	"strings"
 
 	"go.mewis.me/chatgpt-mcp/internal/secretstore"
@@ -181,6 +182,139 @@ func (store SettingsStore) Set(schema SettingsSchema, id PluginID, key string, v
 		overrides[key] = normalized
 		return nil
 	})
+}
+
+func (store SettingsStore) ImportMissing(schema SettingsSchema, id PluginID, values map[string]any) error {
+	if err := schema.Validate(); err != nil {
+		return err
+	}
+	existing, err := store.loadOverrides(id)
+	if err != nil {
+		return err
+	}
+	defaults := schema.Defaults()
+	for key, raw := range values {
+		if _, exists := existing[key]; exists {
+			continue
+		}
+		field, ok := schema.Field(key)
+		if !ok {
+			return fmt.Errorf("%w: %s", ErrUnknownConfigKey, key)
+		}
+		normalized, err := normalizeConfigValue(field, raw)
+		if err != nil {
+			return err
+		}
+		if def, ok := defaults[key]; ok && sameSettingValue(def, normalized) {
+			continue
+		}
+		if err := store.Set(schema, id, key, normalized); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (store SettingsStore) SyncOverrides(schema SettingsSchema, id PluginID, values map[string]any) error {
+	if err := schema.Validate(); err != nil {
+		return err
+	}
+	existing, err := store.loadOverrides(id)
+	if err != nil {
+		return err
+	}
+	defaults := schema.Defaults()
+	for key, raw := range values {
+		field, ok := schema.Field(key)
+		if !ok {
+			return fmt.Errorf("%w: %s", ErrUnknownConfigKey, key)
+		}
+		normalized, err := normalizeConfigValue(field, raw)
+		if err != nil {
+			return err
+		}
+		_, exists := existing[key]
+		if def, ok := defaults[key]; ok && sameSettingValue(def, normalized) {
+			if !exists {
+				continue
+			}
+			if err := store.Reset(schema, id, key); err != nil {
+				return err
+			}
+			delete(existing, key)
+			continue
+		}
+		if exists && sameSettingValue(existing[key], normalized) {
+			continue
+		}
+		if err := store.Set(schema, id, key, normalized); err != nil {
+			return err
+		}
+		existing[key] = normalized
+	}
+	return nil
+}
+
+func ParseSettingValue(field SettingField, raw string) (any, error) {
+	raw = strings.TrimSpace(raw)
+	switch field.Kind {
+	case FieldBool:
+		value, err := strconv.ParseBool(raw)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %s must be true or false", ErrInvalidConfigValue, field.Key)
+		}
+		return value, nil
+	case FieldString:
+		return raw, nil
+	case FieldEnum:
+		for _, option := range field.Enum {
+			if option == raw {
+				return option, nil
+			}
+		}
+		lowered := strings.ToLower(raw)
+		for _, option := range field.Enum {
+			if strings.ToLower(option) == lowered {
+				return option, nil
+			}
+		}
+		return nil, fmt.Errorf("%w: %s is not a valid option", ErrInvalidConfigValue, field.Key)
+	case FieldInt:
+		value, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %s must be an integer", ErrInvalidConfigValue, field.Key)
+		}
+		return value, nil
+	case FieldNumber:
+		value, err := strconv.ParseFloat(raw, 64)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %s must be a number", ErrInvalidConfigValue, field.Key)
+		}
+		return value, nil
+	default:
+		return nil, fmt.Errorf("%w: %s has unsupported type", ErrInvalidConfigValue, field.Key)
+	}
+}
+
+func FormatSettingValue(value any) string {
+	switch typed := value.(type) {
+	case bool:
+		return strconv.FormatBool(typed)
+	case string:
+		return typed
+	case int64:
+		return strconv.FormatInt(typed, 10)
+	case int:
+		return strconv.Itoa(typed)
+	case float64:
+		return strconv.FormatFloat(typed, 'f', -1, 64)
+	default:
+		return fmt.Sprint(value)
+	}
+}
+
+func sameSettingValue(left, right any) bool {
+	return left == right
 }
 
 func (store SettingsStore) Reset(schema SettingsSchema, id PluginID, key string) error {

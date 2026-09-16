@@ -116,6 +116,75 @@ func TestConfigApplyFailureRollsBack(t *testing.T) {
 	}
 }
 
+func TestImportMissingSkipsDefaultsAndExistingKeys(t *testing.T) {
+	store := SettingsStore{Layout: testStore(t).layout}
+	schema := testPluginSettingsSchema()
+	if err := store.ImportMissing(schema, "ponytail", map[string]any{"default_active": true, "default_mode": "full"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(store.Layout.PluginConfigPath("ponytail")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("defaults wrote file")
+	}
+	if err := store.Set(schema, "ponytail", "default_mode", "lite"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ImportMissing(schema, "ponytail", map[string]any{"default_active": false, "default_mode": "full"}); err != nil {
+		t.Fatal(err)
+	}
+	values, err := store.Get(schema, "ponytail")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if values["default_active"] != false || values["default_mode"] != "lite" {
+		t.Fatalf("import missing = %#v", values)
+	}
+}
+
+func TestSyncOverridesPersistsOnlyNonDefaults(t *testing.T) {
+	store := SettingsStore{Layout: testStore(t).layout}
+	schema := testPluginSettingsSchema()
+	if err := store.SyncOverrides(schema, "ponytail", map[string]any{"default_active": false, "default_mode": "full"}); err != nil {
+		t.Fatal(err)
+	}
+	values, err := store.Get(schema, "ponytail")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if values["default_active"] != false || values["default_mode"] != "full" {
+		t.Fatalf("sync = %#v", values)
+	}
+	data, err := os.ReadFile(store.Layout.PluginConfigPath("ponytail"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "default_mode") {
+		t.Fatalf("default mode persisted: %s", data)
+	}
+	if err := store.SyncOverrides(schema, "ponytail", map[string]any{"default_active": true, "default_mode": "full"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(store.Layout.PluginConfigPath("ponytail")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("sync back to defaults left file")
+	}
+}
+
+func TestParseSettingValue(t *testing.T) {
+	schema := testPluginSettingsSchema()
+	active, _ := schema.Field("default_active")
+	mode, _ := schema.Field("default_mode")
+	value, err := ParseSettingValue(active, "false")
+	if err != nil || value != false {
+		t.Fatalf("bool = %#v %v", value, err)
+	}
+	value, err = ParseSettingValue(mode, "LITE")
+	if err != nil || value != "lite" {
+		t.Fatalf("enum = %#v %v", value, err)
+	}
+	if _, err := ParseSettingValue(mode, "ultra"); !errors.Is(err, ErrInvalidConfigValue) {
+		t.Fatalf("invalid enum error = %v", err)
+	}
+}
+
 func TestWorkspacePluginConfigPath(t *testing.T) {
 	path := filepath.ToSlash(WorkspacePluginConfigPath("/tmp/work", "ponytail"))
 	if !strings.HasSuffix(path, "/.cgm/plugins/config/ponytail.json") {

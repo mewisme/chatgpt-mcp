@@ -28,10 +28,23 @@ func SyncTools(runtime *tools.Runtime, raw any) error {
 	Attach(runtime.PluginStore)
 	runtime.EnsurePluginSessions(compiledSessions)
 	feat, _ := raw.(features.Config)
-	return runtime.ApplyPluginSettings(map[string]map[string]any{
-		"ponytail": {"default_active": feat.Ponytail.Active, "default_mode": feat.Ponytail.Mode},
-		"caveman":  {"default_active": feat.Caveman.Active, "default_mode": feat.Caveman.Mode},
-	})
+	settings := map[string]map[string]any{}
+	if runtime.PluginStore != nil {
+		store := pluginpkg.SettingsStore{Layout: runtime.PluginStore.Layout()}
+		for _, builtin := range Builtins() {
+			if len(builtin.Schema.Fields) == 0 {
+				continue
+			}
+			values, err := store.Get(builtin.Schema, builtin.ID)
+			if err != nil {
+				return err
+			}
+			settings[string(builtin.ID)] = values
+		}
+	}
+	settings["ponytail"] = map[string]any{"default_active": feat.Ponytail.Active, "default_mode": feat.Ponytail.Mode}
+	settings["caveman"] = map[string]any{"default_active": feat.Caveman.Active, "default_mode": feat.Caveman.Mode}
+	return runtime.ApplyPluginSettings(settings)
 }
 
 func compiledSessions() []tools.PluginSession {

@@ -13,6 +13,8 @@ import (
 	"go.mewis.me/chatgpt-mcp/internal/configformat"
 	"go.mewis.me/chatgpt-mcp/internal/secretstore"
 	"go.mewis.me/chatgpt-mcp/internal/tunnel"
+	cavemanplugin "go.mewis.me/chatgpt-mcp/plugins/caveman"
+	ponytailplugin "go.mewis.me/chatgpt-mcp/plugins/ponytail"
 )
 
 func TestValidateRequiresAuthTokens(t *testing.T) {
@@ -530,6 +532,9 @@ func TestLegacyConfigWithoutFeaturesKeepsEnabledDefaults(t *testing.T) {
 				if !loaded.Features.Ponytail.Active || loaded.Features.Ponytail.Mode != "full" || !loaded.Features.Caveman.Active || loaded.Features.Caveman.Mode != "full" {
 					t.Fatalf("legacy %s features = %#v", format, loaded.Features)
 				}
+				if _, err := os.Stat(filepath.Join(root, "plugins", "config", "ponytail.json")); !errors.Is(err, os.ErrNotExist) {
+					t.Fatal("legacy load materialized plugin defaults")
+				}
 				unchanged, err := os.ReadFile(configPath)
 				if err != nil {
 					t.Fatal(err)
@@ -594,6 +599,112 @@ func TestPartialFeaturesKeepMissingFeatureDefault(t *testing.T) {
 			}
 			if loaded.Features.Ponytail.Active || loaded.Features.Ponytail.Mode != "full" || !loaded.Features.Caveman.Active || loaded.Features.Caveman.Mode != "full" {
 				t.Fatalf("partial %s features = %#v", format, loaded.Features)
+			}
+			rewritten, err := os.ReadFile(configPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			rewrittenValue, err := configformat.DecodeGeneric(format, rewritten)
+			if err != nil {
+				t.Fatal(err)
+			}
+			rewrittenRoot, ok := rewrittenValue.(map[string]any)
+			if !ok {
+				t.Fatalf("rewritten config = %#v", rewrittenValue)
+			}
+			if _, exists := rewrittenRoot["features"]; exists {
+				t.Fatalf("legacy features section was kept: %#v", rewrittenRoot)
+			}
+			store := settingsStoreForConfigPath(configPath)
+			values, err := store.Get(ponytailplugin.Plugin().Schema, "ponytail")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if values["default_active"] != false || values["default_mode"] != "full" {
+				t.Fatalf("migrated ponytail = %#v", values)
+			}
+			if _, err := os.Stat(filepath.Join(root, "plugins.json")); !errors.Is(err, os.ErrNotExist) {
+				t.Fatal("active=false disabled the built-in plugin")
+			}
+		})
+	}
+}
+
+func TestLegacyFeaturesDoNotOverwritePluginSettings(t *testing.T) {
+	root := t.TempDir()
+	configPath := filepath.Join(root, "config.json")
+	secretPath := filepath.Join(root, "tunnel.json")
+	if err := os.WriteFile(configPath, []byte(`{"server":{"port":37421,"expose":{"mode":"none","interfaces":[]}},"admin":{"enabled":false,"port":37422},"auth":{"mcp_enabled":false,"admin_enabled":false},"features":{"ponytail":{"active":true,"mode":"ultra"}},"tunnel":{"enabled":false}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	store := settingsStoreForConfigPath(configPath)
+	if err := store.Set(ponytailplugin.Plugin().Schema, "ponytail", "default_active", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Set(ponytailplugin.Plugin().Schema, "ponytail", "default_mode", "lite"); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := loadAt(configPath, secretPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Features.Ponytail.Active || loaded.Features.Ponytail.Mode != "lite" {
+		t.Fatalf("plugin settings lost: %#v", loaded.Features.Ponytail)
+	}
+}
+
+func TestSaveOmitsFeaturesAndPersistsPluginSettings(t *testing.T) {
+	for _, format := range []configformat.Format{configformat.JSON, configformat.YAML, configformat.TOML} {
+		t.Run(string(format), func(t *testing.T) {
+			root := t.TempDir()
+			configPath := configformat.PathFor(root, "config", format)
+			secretPath := configformat.PathFor(root, "tunnel", format)
+			cfg := Default()
+			cfg.Features.Ponytail.Active = false
+			cfg.Features.Ponytail.Mode = "ultra"
+			cfg.Features.Caveman.Active = false
+			if err := saveAt(configPath, secretPath, cfg); err != nil {
+				t.Fatal(err)
+			}
+			saved, err := os.ReadFile(configPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw, err := configformat.DecodeGeneric(format, saved)
+			if err != nil {
+				t.Fatal(err)
+			}
+			rootValue, ok := raw.(map[string]any)
+			if !ok {
+				t.Fatalf("root = %#v", raw)
+			}
+			if _, exists := rootValue["features"]; exists {
+				t.Fatalf("features serialized: %#v", rootValue)
+			}
+			if _, exists := rootValue["interactive"]; exists {
+				t.Fatalf("obsolete interactive key serialized: %#v", rootValue)
+			}
+			store := settingsStoreForConfigPath(configPath)
+			ponytail, err := store.Get(ponytailplugin.Plugin().Schema, "ponytail")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if ponytail["default_active"] != false || ponytail["default_mode"] != "ultra" {
+				t.Fatalf("ponytail settings = %#v", ponytail)
+			}
+			caveman, err := store.Get(cavemanplugin.Plugin().Schema, "caveman")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if caveman["default_active"] != false || caveman["default_mode"] != "full" {
+				t.Fatalf("caveman settings = %#v", caveman)
+			}
+			loaded, err := loadAt(configPath, secretPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if loaded.Features.Ponytail.Active || loaded.Features.Ponytail.Mode != "ultra" || loaded.Features.Caveman.Active {
+				t.Fatalf("reloaded features = %#v", loaded.Features)
 			}
 		})
 	}

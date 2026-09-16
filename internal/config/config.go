@@ -247,6 +247,9 @@ func loadAtWithTunnelSecretPolicy(configPath, secretPath string, policy tunnelSe
 	if err := migrateLegacyServerConfig(configPath, data, &cfg); err != nil {
 		return cfg, err
 	}
+	if err := migrateLegacyFeatureSettings(configPath, data, &cfg); err != nil {
+		return cfg, err
+	}
 	legacyRuntime, legacyAdmin := cfg.Tunnel.APIKey, cfg.Tunnel.AdminKey
 	if legacyRuntime == secretFileMarker {
 		legacyRuntime = ""
@@ -370,6 +373,9 @@ func saveAtWithSecretSaver(configPath, secretPath string, cfg Config, saveSecret
 	persisted.Tunnel.AdminOrganizationID = ""
 	persisted.Tunnel.AdminWorkspaceID = ""
 	persisted.Tunnel.AdminTenantID = ""
+	if err := persistFeatureSettings(configPath, cfg); err != nil {
+		return err
+	}
 	data, err := mergeConfigData(configPath, persisted, cfg)
 	if err != nil {
 		return err
@@ -459,6 +465,7 @@ func mergeConfigData(path string, persisted, runtime Config) ([]byte, error) {
 			delete(mergedTunnel, key)
 		}
 	}
+	delete(merged, "features")
 	return configformat.EncodeGeneric(format, merged)
 }
 

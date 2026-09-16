@@ -193,7 +193,7 @@ func writeStubArtifact(output, id string) error {
 		return err
 	}
 	manifest := plugin.Manifest{
-		Schema: plugin.ManifestSchemaV2, ID: plugin.PluginID(id), Name: id, Publisher: "mewisme", License: "Apache-2.0", Version: "1.0.0", Type: "runtime",
+		Schema: plugin.ManifestSchema, ID: plugin.PluginID(id), Name: id, Publisher: "mewisme", License: "Apache-2.0", Version: "1.0.0", Type: "runtime",
 		Provides: []plugin.Capability{plugin.Capability("tunnel/" + id)}, Permissions: []plugin.Permission{plugin.PermissionProcessExecute},
 		Scopes: []plugin.PluginScope{plugin.ScopeGlobal},
 		Platforms: map[string]plugin.PlatformArtifact{

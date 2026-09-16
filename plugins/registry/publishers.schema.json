@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ChatGPT MCP Plugin Publishers",
+  "description": "Version 1 contract for plugin publisher identities and Sigstore trust metadata.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "publishers"],
+  "properties": {
+    "schema": { "const": 1 },
+    "publishers": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "$ref": "../schema.json#/$defs/canonicalName" },
+      "additionalProperties": { "$ref": "#/$defs/publisher" }
+    }
+  },
+  "$defs": {
+    "publisher": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "source", "trusted"],
+      "properties": {
+        "name": { "$ref": "../schema.json#/$defs/canonicalName" },
+        "source": { "type": "string", "format": "uri", "pattern": "^https://" },
+        "trusted": { "type": "boolean" },
+        "sigstore": { "$ref": "#/$defs/sigstore" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "trusted": { "const": true } }, "required": ["trusted"] },
+          "then": { "required": ["sigstore"] }
+        }
+      ]
+    },
+    "sigstore": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["issuer", "repository"],
+      "properties": {
+        "issuer": { "type": "string", "format": "uri", "pattern": "^https://" },
+        "repository": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$" }
+      }
+    }
+  }
+}

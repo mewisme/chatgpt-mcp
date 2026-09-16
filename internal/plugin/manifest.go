@@ -18,7 +18,6 @@ import (
 )
 
 const ManifestSchema = 1
-const ManifestSchemaV2 = 2
 
 type PluginID string
 type Version string
@@ -151,17 +150,11 @@ func ParseManifest(data []byte) (Manifest, error) {
 }
 
 func (manifest Manifest) Validate() error {
-	switch manifest.Schema {
-	case ManifestSchema:
-		if len(manifest.Scopes) > 0 {
-			return fmt.Errorf("plugin scopes require manifest schema %d", ManifestSchemaV2)
-		}
-	case ManifestSchemaV2:
-		if err := validatePluginScopes(manifest.Scopes); err != nil {
-			return err
-		}
-	default:
+	if manifest.Schema != ManifestSchema {
 		return fmt.Errorf("unsupported plugin manifest schema: %d", manifest.Schema)
+	}
+	if err := validatePluginScopes(manifest.Scopes); err != nil {
+		return err
 	}
 	if !validCanonicalName(string(manifest.ID)) {
 		return fmt.Errorf("invalid plugin id: %q", manifest.ID)
@@ -172,14 +165,8 @@ func (manifest Manifest) Validate() error {
 	if !validCanonicalName(manifest.Publisher) {
 		return fmt.Errorf("invalid plugin publisher: %q", manifest.Publisher)
 	}
-	if manifest.Schema >= ManifestSchemaV2 {
-		if err := validateLicense(manifest.License); err != nil {
-			return err
-		}
-	} else if strings.TrimSpace(manifest.License) != "" {
-		if err := validateLicense(manifest.License); err != nil {
-			return err
-		}
+	if err := validateLicense(manifest.License); err != nil {
+		return err
 	}
 	if err := validateVersion(string(manifest.Version)); err != nil {
 		return fmt.Errorf("invalid plugin version %q: %w", manifest.Version, err)

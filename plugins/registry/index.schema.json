@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ChatGPT MCP Plugin Registry Index",
+  "description": "Version 1 contract for the signed plugin registry index.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "generated_at", "plugins"],
+  "properties": {
+    "schema": { "const": 1 },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "plugins": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "$ref": "../schema.json#/$defs/canonicalName" },
+      "additionalProperties": { "$ref": "#/$defs/entry" }
+    }
+  },
+  "$defs": {
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["publisher", "name", "license", "description", "type", "scopes", "versions"],
+      "properties": {
+        "publisher": { "$ref": "../schema.json#/$defs/canonicalName" },
+        "name": { "type": "string", "minLength": 1 },
+        "license": { "$ref": "../schema.json#/$defs/license" },
+        "description": { "type": "string", "minLength": 1 },
+        "type": { "$ref": "../schema.json#/$defs/pluginType" },
+        "scopes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["global", "workspace"] }
+        },
+        "provides": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "../schema.json#/$defs/capability" }
+        },
+        "core": { "$ref": "#/$defs/corePolicy" },
+        "stable": { "$ref": "../schema.json#/$defs/version" },
+        "beta": { "$ref": "../schema.json#/$defs/version" },
+        "versions": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": { "$ref": "../schema.json#/$defs/version" },
+          "additionalProperties": { "$ref": "#/$defs/manifestAsset" }
+        }
+      }
+    },
+    "corePolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required"],
+      "properties": {
+        "required": { "type": "boolean" },
+        "enabled": { "type": "boolean" },
+        "platforms": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "../schema.json#/$defs/platform" }
+        }
+      }
+    },
+    "manifestAsset": {
+      "allOf": [
+        { "$ref": "../schema.json#/$defs/assetName" },
+        { "type": "string", "pattern": "\\.json$" }
+      ]
+    }
+  }
+}

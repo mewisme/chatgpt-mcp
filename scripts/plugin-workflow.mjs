@@ -38,6 +38,7 @@ export function workflowMatrix(workflow, kind) {
 }
 
 export async function validateRepositoryWorkflow(workflow) {
+  run(goExecutable(), ["run", "./scripts/validate-plugin-schemas"])
   const index = JSON.parse(await readFile(resolve(root, "plugins/registry/index.json"), "utf8"))
   const defined = workflow.plugins.map(plugin => plugin.id).sort()
   const registered = Object.keys(index.plugins ?? {}).sort()

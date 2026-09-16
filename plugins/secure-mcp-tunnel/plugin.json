@@ -1,5 +1,5 @@
 {
-  "schema": 2,
+  "schema": 1,
   "id": "secure-mcp-tunnel",
   "name": "Secure MCP Tunnel",
   "publisher": "mewisme",

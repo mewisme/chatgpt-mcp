@@ -494,7 +494,7 @@ func installDoctorStubPlugin(t *testing.T, id, registry string, extras map[strin
 		}
 	}
 	manifest := pluginpkg.Manifest{
-		Schema: pluginpkg.ManifestSchemaV2, ID: pluginpkg.PluginID(id), Name: id, Publisher: "mewisme", License: "Apache-2.0", Version: "1.0.0",
+		Schema: pluginpkg.ManifestSchema, ID: pluginpkg.PluginID(id), Name: id, Publisher: "mewisme", License: "Apache-2.0", Version: "1.0.0",
 		Type: "terminal-ui", Provides: []pluginpkg.Capability{"terminal-ui/default"},
 		Scopes: []pluginpkg.PluginScope{pluginpkg.ScopeGlobal},
 		Platforms: map[string]pluginpkg.PlatformArtifact{

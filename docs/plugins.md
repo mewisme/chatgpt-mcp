@@ -88,7 +88,7 @@ global     once for this CGM install; visible to every workspace that uses that 
 workspace  one registered workspace; active only while operating in that workspace
 ```
 
-Manifest `scopes` (schema 2) lists allowed values. Schema 1 has no field and is global-only. CLI/TUI/Admin cannot install a plugin into a scope the manifest forbids.
+Manifest `scopes` in schema 1 lists the allowed values (`global` and/or `workspace`). CLI/TUI/Admin cannot install a plugin into a scope the manifest forbids.
 
 The same plugin ID cannot be enabled globally and in a workspace at the same time. Disabled copies may exist in both stores. Do not merge global and workspace config for the same ID.
 
@@ -238,13 +238,13 @@ Repair remains an explicit plugin lifecycle action (`cgm plugin verify`, reinsta
 
 A plugin uses a strict `plugin.json` manifest. Unknown JSON fields are rejected. IDs, publishers, capability names, and platform names use canonical lowercase names; plugin versions are SemVer without a leading `v`. `license` is a required SPDX expression (`Apache-2.0`, `MIT OR Apache-2.0`, `LicenseRef-Proprietary`, …). It is descriptive metadata only: it does not change capability, risk, or runtime behavior. Official CGM plugins declare their license explicitly; community plugins choose their own and must not be defaulted to Apache-2.0. Most plugins ship a platform artifact, but a command-wrapper may instead declare a verified host executable and install only signed metadata.
 
-Schema 1 has no `scopes` field and installs globally only. Schema 2 requires a non-empty unique `scopes` list of `global` and/or `workspace`. Do not add `scopes` to a schema-1 manifest.
+Schema 1 requires a non-empty unique `scopes` list containing `global` and/or `workspace`. The machine-readable contract lives at `plugins/schema.json`; registry and repository workflow contracts live beside their JSON documents under `plugins/registry/*.schema.json` and `plugins/workflow.schema.json`.
 
 Example packaged command-wrapper manifest:
 
 ```json
 {
-  "schema": 2,
+  "schema": 1,
   "id": "example-wrapper",
   "name": "Example Wrapper",
   "publisher": "example",

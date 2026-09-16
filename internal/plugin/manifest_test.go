@@ -88,6 +88,7 @@ func TestManifestPlatformFallsBackToAnyAny(t *testing.T) {
 	manifest := Manifest{
 		Schema: ManifestSchema, ID: "admin-ui", Name: "Admin UI", Publisher: "mewisme", License: "Apache-2.0", Version: "1.0.0", Type: "web-ui",
 		Provides: []Capability{CapabilityWebUIAdmin}, Permissions: []Permission{},
+		Scopes: []PluginScope{ScopeGlobal},
 		Platforms: map[string]PlatformArtifact{
 			"any/any":     {Artifact: "admin-ui-1.0.0.zip", SHA256: strings.Repeat("a", 64), Archive: "zip", Entrypoint: "index.html"},
 			"linux/amd64": {Artifact: "admin-ui-linux.zip", SHA256: strings.Repeat("b", 64), Archive: "zip", Entrypoint: "index.html"},
@@ -113,6 +114,7 @@ func TestManifestWebUIIsolation(t *testing.T) {
 	base := Manifest{
 		Schema: ManifestSchema, ID: "admin-ui", Name: "Admin UI", Publisher: "mewisme", License: "Apache-2.0", Version: "1.0.0", Type: "web-ui",
 		Provides: []Capability{CapabilityWebUIAdmin}, Permissions: []Permission{},
+		Scopes:    []PluginScope{ScopeGlobal},
 		Platforms: map[string]PlatformArtifact{"any/any": {Artifact: "admin-ui-1.0.0.zip", SHA256: strings.Repeat("a", 64), Archive: "zip", Entrypoint: "index.html"}},
 	}
 	if err := base.Validate(); err != nil {
@@ -173,8 +175,8 @@ func TestOfficialPluginManifestsDeclareIntendedScopes(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", test.path, err)
 		}
-		if manifest.Schema != ManifestSchemaV2 {
-			t.Fatalf("%s schema = %d, want %d", test.path, manifest.Schema, ManifestSchemaV2)
+		if manifest.Schema != ManifestSchema {
+			t.Fatalf("%s schema = %d, want %d", test.path, manifest.Schema, ManifestSchema)
 		}
 		got := manifest.AllowedScopes()
 		if len(got) != len(test.scopes) {
@@ -188,32 +190,14 @@ func TestOfficialPluginManifestsDeclareIntendedScopes(t *testing.T) {
 	}
 }
 
-func TestManifestSchema1IsGlobalOnly(t *testing.T) {
-	manifest := testManifest("bash", "1.0.0", "shell/bash")
-	if err := manifest.Validate(); err != nil {
-		t.Fatal(err)
-	}
-	if got := manifest.AllowedScopes(); len(got) != 1 || got[0] != ScopeGlobal {
-		t.Fatalf("schema 1 scopes = %#v", got)
-	}
-	if !manifest.AllowsScope(ScopeGlobal) || manifest.AllowsScope(ScopeWorkspace) {
-		t.Fatalf("schema 1 allows workspace: %#v", manifest.AllowedScopes())
-	}
-	manifest.Scopes = []PluginScope{ScopeGlobal}
-	if err := manifest.Validate(); err == nil {
-		t.Fatal("schema 1 accepted explicit scopes")
-	}
-}
-
-func TestManifestSchema2RequiresValidScopes(t *testing.T) {
+func TestManifestSchema1RequiresValidScopes(t *testing.T) {
 	valid := testManifest("bash", "1.0.0", "shell/bash")
-	valid.Schema = ManifestSchemaV2
 	valid.Scopes = []PluginScope{ScopeGlobal, ScopeWorkspace}
 	if err := valid.Validate(); err != nil {
 		t.Fatal(err)
 	}
 	if !valid.AllowsScope(ScopeWorkspace) {
-		t.Fatal("schema 2 workspace scope rejected")
+		t.Fatal("schema 1 workspace scope rejected")
 	}
 	tests := []struct {
 		name   string
@@ -243,16 +227,10 @@ func TestManifestLicenseValidation(t *testing.T) {
 			t.Fatalf("%s: %v", license, err)
 		}
 	}
-	legacyMissing := testManifest("demo", "1.0.0", "shell/bash")
-	legacyMissing.License = ""
-	if err := legacyMissing.Validate(); err != nil {
-		t.Fatalf("legacy manifest rejected missing license: %v", err)
-	}
-	currentMissing := testManifest("demo", "1.0.0", "shell/bash")
-	currentMissing.Schema = ManifestSchemaV2
-	currentMissing.License = ""
-	if err := currentMissing.Validate(); err == nil {
-		t.Fatal("current manifest schema accepted missing license")
+	missing := testManifest("demo", "1.0.0", "shell/bash")
+	missing.License = ""
+	if err := missing.Validate(); err == nil {
+		t.Fatal("schema 1 accepted missing license")
 	}
 	for _, license := range []string{"Apache 2.0", "MIT AND", "not a license"} {
 		manifest := testManifest("demo", "1.0.0", "shell/bash")
@@ -274,13 +252,13 @@ func testManifest(id, version string, capability Capability) Manifest {
 	return Manifest{
 		Schema: ManifestSchema, ID: PluginID(id), Name: id, Publisher: "mewisme", License: "Apache-2.0", Version: Version(version), Type: "runtime",
 		Provides: []Capability{capability}, Permissions: []Permission{PermissionProcessExecute},
+		Scopes:    []PluginScope{ScopeGlobal},
 		Platforms: map[string]PlatformArtifact{"linux/amd64": {Artifact: id + "-" + version + "-linux-amd64.tar.gz", SHA256: strings.Repeat("a", 64), Archive: "tar.gz", Entrypoint: "bin/" + id}},
 	}
 }
 
 func testScopedManifest(id, version string, capability Capability, scopes ...PluginScope) Manifest {
 	manifest := testManifest(id, version, capability)
-	manifest.Schema = ManifestSchemaV2
 	manifest.Scopes = append([]PluginScope(nil), scopes...)
 	return manifest
 }

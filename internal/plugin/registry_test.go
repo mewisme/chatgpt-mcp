@@ -69,24 +69,13 @@ func TestRegistryEntryWithoutScopesDefaultsToGlobal(t *testing.T) {
 	}
 }
 
-func TestRegistryLegacySchemaAllowsMissingLicense(t *testing.T) {
-	index := testRegistrySnapshot("official", true).Index
-	index.Schema = RegistrySchemaLegacy
-	entry := index.Plugins["bash"]
-	entry.License = ""
-	index.Plugins["bash"] = entry
-	if err := index.Validate(); err != nil {
-		t.Fatalf("legacy registry rejected: %v", err)
-	}
-}
-
-func TestRegistryCurrentSchemaRequiresLicense(t *testing.T) {
+func TestRegistrySchema1RequiresLicense(t *testing.T) {
 	index := testRegistrySnapshot("official", true).Index
 	entry := index.Plugins["bash"]
 	entry.License = ""
 	index.Plugins["bash"] = entry
 	if err := index.Validate(); err == nil {
-		t.Fatal("current registry schema accepted missing license")
+		t.Fatal("schema 1 registry accepted missing license")
 	}
 }
 

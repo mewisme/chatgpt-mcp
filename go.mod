@@ -24,6 +24,7 @@ require (
 	github.com/prometheus/client_golang v1.23.2
 	github.com/quic-go/quic-go v0.59.1
 	github.com/rs/zerolog v1.20.0
+	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
 	github.com/sigstore/sigstore-go v1.3.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10

@@ -1,0 +1,276 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ChatGPT MCP Plugin Manifest",
+  "description": "Version 1 contract for ChatGPT MCP plugin manifests.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "id", "name", "publisher", "license", "version", "type", "provides", "permissions", "platforms", "scopes"],
+  "properties": {
+    "schema": { "const": 1, "description": "Plugin manifest schema version." },
+    "id": { "$ref": "#/$defs/canonicalName" },
+    "name": { "type": "string", "minLength": 1 },
+    "publisher": { "$ref": "#/$defs/canonicalName" },
+    "license": { "$ref": "#/$defs/license" },
+    "version": { "$ref": "#/$defs/version" },
+    "type": { "$ref": "#/$defs/pluginType" },
+    "requires": { "$ref": "#/$defs/requirements" },
+    "provides": { "$ref": "#/$defs/capabilities" },
+    "permissions": { "$ref": "#/$defs/permissions" },
+    "dependencies": { "$ref": "#/$defs/dependencies" },
+    "platforms": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "$ref": "#/$defs/platform" },
+      "additionalProperties": { "$ref": "#/$defs/platformArtifact" }
+    },
+    "scopes": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "enum": ["global", "workspace"] }
+    },
+    "config": { "$ref": "#/$defs/settingsSchema" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "type": { "const": "web-ui" } }, "required": ["type"] },
+      "then": {
+        "properties": {
+          "provides": { "type": "array", "minItems": 1, "maxItems": 1, "items": { "type": "string", "pattern": "^web-ui/" } },
+          "permissions": { "type": "array", "maxItems": 0 },
+          "platforms": { "additionalProperties": { "$ref": "#/$defs/webUIArtifact" } }
+        }
+      },
+      "else": { "properties": { "provides": { "not": { "contains": { "type": "string", "pattern": "^web-ui/" } } } } }
+    },
+    {
+      "if": { "properties": { "type": { "const": "terminal-ui" } }, "required": ["type"] },
+      "then": {
+        "properties": {
+          "provides": { "type": "array", "minItems": 1, "maxItems": 1, "items": { "type": "string", "pattern": "^terminal-ui/" } },
+          "permissions": { "type": "array", "maxItems": 0 }
+        }
+      },
+      "else": { "properties": { "provides": { "not": { "contains": { "type": "string", "pattern": "^terminal-ui/" } } } } }
+    },
+    {
+      "if": { "properties": { "type": { "not": { "const": "command-wrapper" } } }, "required": ["type"] },
+      "then": { "properties": { "platforms": { "additionalProperties": { "$ref": "#/$defs/packagedArtifact" } } } }
+    },
+    {
+      "if": { "properties": { "provides": { "contains": { "type": "string", "pattern": "^command-wrapper/" } } }, "required": ["provides"] },
+      "then": { "properties": { "permissions": { "contains": { "const": "process/execute" } } } }
+    },
+    {
+      "if": { "properties": { "provides": { "contains": { "const": "hook/pre-tool-use" } } }, "required": ["provides"] },
+      "then": { "properties": { "permissions": { "allOf": [{ "contains": { "const": "process/execute" } }, { "contains": { "const": "hook/tool-control" } }] } } }
+    },
+    {
+      "if": { "properties": { "provides": { "contains": { "enum": ["hook/post-tool-use", "hook/tool-error", "hook/tool-denied"] } } }, "required": ["provides"] },
+      "then": { "properties": { "permissions": { "allOf": [{ "contains": { "const": "process/execute" } }, { "contains": { "const": "hook/tool-observe" } }] } } }
+    }
+  ],
+  "$defs": {
+    "canonicalName": {
+      "type": "string",
+      "pattern": "^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$",
+      "description": "Canonical lowercase identifier, up to 64 characters."
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$",
+      "description": "Normalized semantic version without a leading v or build metadata."
+    },
+    "coreVersionConstraint": {
+      "type": "string",
+      "pattern": "^(?:>=|<=|>|<|=)?\\s*[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$"
+    },
+    "license": {
+      "type": "string",
+      "pattern": "^(?:LicenseRef-[A-Za-z0-9.-]+|[A-Za-z0-9][A-Za-z0-9.+-]{0,127})(?: (?:AND|OR) (?:LicenseRef-[A-Za-z0-9.-]+|[A-Za-z0-9][A-Za-z0-9.+-]{0,127}))*$",
+      "description": "SPDX-style license identifier or AND/OR expression supported by the plugin validator."
+    },
+    "pluginType": {
+      "enum": ["runtime", "command-wrapper", "hook", "tool-provider", "secret-provider", "formatter", "web-ui", "terminal-ui"]
+    },
+    "capability": {
+      "type": "string",
+      "pattern": "^(?:shell|command-wrapper|hook|tool-provider|secret-provider|formatter|web-ui|tunnel|terminal-ui)/[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+    },
+    "capabilities": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/capability" }
+    },
+    "permission": {
+      "enum": ["process/execute", "network/outbound", "filesystem/plugin-data", "filesystem/workspace-read", "filesystem/workspace-write", "hook/tool-observe", "hook/tool-control"]
+    },
+    "permissions": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/permission" }
+    },
+    "platform": {
+      "type": "string",
+      "pattern": "^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?/[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+    },
+    "sha256": { "type": "string", "pattern": "^[A-Fa-f0-9]{64}$" },
+    "assetName": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^/\\\\:]+$",
+      "not": { "enum": [".", ".."] }
+    },
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^/\\\\:][^\\\\:]*$"
+    },
+    "httpsURL": { "type": "string", "format": "uri", "pattern": "^https://" },
+    "exitCodes": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "integer", "minimum": 0, "maximum": 255 }
+    },
+    "requirements": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "chatgpt-mcp": { "$ref": "#/$defs/coreVersionConstraint" } }
+    },
+    "dependencies": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "capabilities": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/capability" } }
+      }
+    },
+    "packagedArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact", "sha256", "archive", "entrypoint"],
+      "properties": {
+        "artifact": { "$ref": "#/$defs/assetName" },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "archive": { "enum": ["zip", "tar.gz"] },
+        "entrypoint": { "$ref": "#/$defs/relativePath" }
+      }
+    },
+    "webUIArtifact": {
+      "allOf": [
+        { "$ref": "#/$defs/packagedArtifact" },
+        { "properties": { "entrypoint": { "type": "string", "pattern": "(?i)\\.html$" } } }
+      ]
+    },
+    "hostArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["host"],
+      "properties": { "host": { "$ref": "#/$defs/hostExecutable" } }
+    },
+    "platformArtifact": {
+      "oneOf": [{ "$ref": "#/$defs/packagedArtifact" }, { "$ref": "#/$defs/hostArtifact" }]
+    },
+    "hostExecutable": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["executable"],
+      "properties": {
+        "executable": { "$ref": "#/$defs/assetName" },
+        "checks": { "type": "array", "items": { "$ref": "#/$defs/hostCheck" } },
+        "install": { "type": "array", "items": { "$ref": "#/$defs/installHint" } },
+        "portable": { "$ref": "#/$defs/portableInstall" },
+        "command_wrapper": { "$ref": "#/$defs/commandWrapper" }
+      }
+    },
+    "hostCheck": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "args": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^[^\\x00]*$" } },
+        "success_exit_codes": { "$ref": "#/$defs/exitCodes" },
+        "stdout_prefix": { "type": "string", "minLength": 1 },
+        "stdout_contains": { "type": "string", "minLength": 1 }
+      },
+      "anyOf": [{ "required": ["name"] }, { "required": ["args"] }, { "required": ["stdout_prefix"] }, { "required": ["stdout_contains"] }]
+    },
+    "installHint": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "label": { "type": "string" },
+        "command": { "type": "string", "minLength": 1, "pattern": "^[^\\r\\n\\x00]+$" },
+        "executable": { "$ref": "#/$defs/assetName" },
+        "args": { "type": "array", "items": { "type": "string", "pattern": "^[^\\x00]*$" } }
+      },
+      "anyOf": [{ "required": ["command"] }, { "required": ["executable"] }],
+      "dependentRequired": { "args": ["executable"] }
+    },
+    "portableInstall": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url", "archive", "entrypoint"],
+      "properties": {
+        "url": { "$ref": "#/$defs/httpsURL" },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "checksum_url": { "$ref": "#/$defs/httpsURL" },
+        "checksum_asset": { "$ref": "#/$defs/assetName" },
+        "archive": { "enum": ["zip", "tar.gz"] },
+        "entrypoint": { "$ref": "#/$defs/relativePath" }
+      },
+      "oneOf": [
+        { "required": ["sha256"], "not": { "anyOf": [{ "required": ["checksum_url"] }, { "required": ["checksum_asset"] }] } },
+        { "required": ["checksum_url", "checksum_asset"], "not": { "required": ["sha256"] } }
+      ]
+    },
+    "commandWrapper": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["args", "rewrite_exit_codes"],
+      "properties": {
+        "args": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "pattern": "^[^\\x00]*$" },
+          "contains": { "const": "{command}" },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        "rewrite_exit_codes": { "allOf": [{ "$ref": "#/$defs/exitCodes" }, { "minItems": 1 }] },
+        "passthrough_exit_codes": { "$ref": "#/$defs/exitCodes" }
+      }
+    },
+    "settingsSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fields"],
+      "properties": { "fields": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/settingField" } } }
+    },
+    "settingField": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "type"],
+      "properties": {
+        "key": { "$ref": "#/$defs/canonicalName" },
+        "type": { "enum": ["string", "boolean", "integer", "number", "enum"] },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "default": true,
+        "required": { "type": "boolean" },
+        "enum": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string" } },
+        "sensitive": { "type": "boolean" }
+      },
+      "allOf": [
+        { "if": { "properties": { "type": { "const": "enum" } }, "required": ["type"] }, "then": { "required": ["enum"] }, "else": { "not": { "required": ["enum"] } } },
+        { "if": { "properties": { "sensitive": { "const": true } }, "required": ["sensitive"] }, "then": { "properties": { "type": { "const": "string" } } } },
+        { "if": { "properties": { "required": { "const": true }, "sensitive": { "not": { "const": true } } }, "required": ["required"] }, "then": { "required": ["default"] } },
+        { "if": { "properties": { "type": { "const": "string" } }, "required": ["type", "default"] }, "then": { "properties": { "default": { "type": "string" } } } },
+        { "if": { "properties": { "type": { "const": "boolean" } }, "required": ["type", "default"] }, "then": { "properties": { "default": { "type": "boolean" } } } },
+        { "if": { "properties": { "type": { "const": "integer" } }, "required": ["type", "default"] }, "then": { "properties": { "default": { "type": "integer" } } } },
+        { "if": { "properties": { "type": { "const": "number" } }, "required": ["type", "default"] }, "then": { "properties": { "default": { "type": "number" } } } },
+        { "if": { "properties": { "type": { "const": "enum" } }, "required": ["type", "default"] }, "then": { "properties": { "default": { "type": "string" } } } }
+      ]
+    }
+  }
+}

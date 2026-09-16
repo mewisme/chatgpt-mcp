@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ChatGPT MCP Plugin Workflow",
+  "description": "Version 1 repository build, smoke-test, and core-plugin workflow contract.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "plugins"],
+  "properties": {
+    "schema": { "const": 1 },
+    "plugins": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/plugin" }
+    }
+  },
+  "$defs": {
+    "pluginID": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+    "safeRelativePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^/\\\\:][^\\\\:]*$"
+    },
+    "argv": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "plugin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "build"],
+      "properties": {
+        "id": { "$ref": "#/$defs/pluginID" },
+        "core": { "$ref": "#/$defs/core" },
+        "build": { "$ref": "#/$defs/build" },
+        "smoke": { "$ref": "#/$defs/smoke" }
+      }
+    },
+    "core": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "required": { "type": "boolean" },
+        "enabled": { "type": "boolean" },
+        "platforms": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "schema.json#/$defs/platform" }
+        }
+      }
+    },
+    "build": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["runner"],
+      "properties": {
+        "runner": { "type": "string", "minLength": 1 },
+        "mode": { "enum": ["command", "manifest"] },
+        "command": { "$ref": "#/$defs/argv" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "mode": { "const": "manifest" } }, "required": ["mode"] },
+          "then": { "not": { "required": ["command"] } },
+          "else": { "required": ["command"] }
+        }
+      ]
+    },
+    "smoke": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["runner", "probe"],
+      "properties": {
+        "runner": { "type": "string", "minLength": 1 },
+        "probe": { "$ref": "#/$defs/probe" }
+      }
+    },
+    "probe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "path"],
+      "properties": {
+        "kind": { "enum": ["file", "command"] },
+        "path": { "$ref": "#/$defs/safeRelativePath" },
+        "args": { "type": "array", "items": { "type": "string" } },
+        "stdout": { "type": "string" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "const": "file" } }, "required": ["kind"] },
+          "then": { "not": { "anyOf": [{ "required": ["args"] }, { "required": ["stdout"] }] } }
+        }
+      ]
+    }
+  }
+}

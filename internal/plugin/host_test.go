@@ -351,6 +351,7 @@ func testHostWrapperManifest() Manifest {
 	return Manifest{
 		Schema: ManifestSchema, ID: "wrap", Name: "Host Wrapper", Publisher: "mewisme", License: "Apache-2.0", Version: "1.0.0", Type: "command-wrapper",
 		Requires: Requirements{ChatGPTMCP: ">=0.2.24"}, Provides: []Capability{"command-wrapper/wrap"}, Permissions: []Permission{PermissionProcessExecute},
+		Scopes: []PluginScope{ScopeGlobal},
 		Platforms: map[string]PlatformArtifact{runtime.GOOS + "/" + runtime.GOARCH: {Host: &HostExecutableSpec{
 			Executable:     executable,
 			Checks:         []HostExecutableCheck{{Name: "identity", Args: []string{"check"}, StdoutContains: "ready"}},

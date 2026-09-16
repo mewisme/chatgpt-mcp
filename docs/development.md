@@ -36,27 +36,27 @@ CI remains the source of truth (`govulncheck`, `gosec` baseline, coverage, matri
 ## Install frontend dependencies
 
 ```bash
-pnpm --dir web install
+pnpm --dir plugins/admin-ui install
 ```
 
 ## Frontend checks
 
 ```bash
-pnpm --dir web test
-pnpm --dir web lint
-pnpm --dir web typecheck
-pnpm --dir web build
+pnpm --dir plugins/admin-ui test
+pnpm --dir plugins/admin-ui lint
+pnpm --dir plugins/admin-ui typecheck
+pnpm --dir plugins/admin-ui build
 ```
 
 ## Build the Admin UI plugin
 
-The Go binary no longer embeds the admin dashboard. The official `admin-ui` plugin packages the production `web/dist` as one deterministic, platform-independent artifact:
+The Go binary no longer embeds the admin dashboard. The official `admin-ui` plugin packages the production `plugins/admin-ui/dist` as one deterministic, platform-independent artifact:
 
 ```bash
 node scripts/prepare-web-embed.mjs
 ```
 
-Use `--no-deps` to reuse the current frontend installation, or `--from-dist` to package an already-built `web/dist` without running install/build. The core retains the admin server, authentication, API routes, activity endpoints, and security headers; the plugin only provides `web-ui/admin` static assets.
+Use `--no-deps` to reuse the current frontend installation, or `--from-dist` to package an already-built `plugins/admin-ui/dist` without running install/build. The core retains the admin server, authentication, API routes, activity endpoints, and security headers; the plugin only provides `web-ui/admin` static assets.
 
 ## Backend checks
 
@@ -319,10 +319,10 @@ Use the next semantic version appropriate for the release instead of copying thi
 git diff --check
 CHATGPT_MCP_CONFIG_DIR="$(mktemp -d)" go test ./...
 go vet ./...
-pnpm --dir web test
-pnpm --dir web lint
-pnpm --dir web typecheck
-pnpm --dir web build
+pnpm --dir plugins/admin-ui test
+pnpm --dir plugins/admin-ui lint
+pnpm --dir plugins/admin-ui typecheck
+pnpm --dir plugins/admin-ui build
 ```
 
 For changes affecting service behavior, tunnel connectivity, runtime logs, configuration, or MCP protocol behavior, also run the release smoke.

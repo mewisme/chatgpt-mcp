@@ -21,8 +21,8 @@ Requirements:
 Quick path:
 
 ```bash
-pnpm --dir web install
-pnpm --dir web build
+pnpm --dir plugins/admin-ui install
+pnpm --dir plugins/admin-ui build
 CHATGPT_MCP_CONFIG_DIR="$(mktemp -d)" go test ./...
 go build -trimpath ./
 ```
@@ -50,10 +50,10 @@ Suggested local checks before opening a PR:
 ./scripts/check.sh
 CHATGPT_MCP_CONFIG_DIR="$(mktemp -d)" go test ./...
 go vet ./...
-pnpm --dir web test
-pnpm --dir web lint
-pnpm --dir web typecheck
-pnpm --dir web build
+pnpm --dir plugins/admin-ui test
+pnpm --dir plugins/admin-ui lint
+pnpm --dir plugins/admin-ui typecheck
+pnpm --dir plugins/admin-ui build
 ```
 
 For changes that affect services, tunnel connectivity, runtime logs, configuration, or MCP protocol behavior, also run the release smoke described in [docs/development.md](docs/development.md).

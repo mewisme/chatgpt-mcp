@@ -43,12 +43,12 @@ else
   echo "skip: shellcheck not installed"
 fi
 
-echo "==> web lint/typecheck (if pnpm available)"
-if command -v pnpm >/dev/null 2>&1 && [[ -d web/node_modules ]]; then
-  pnpm --dir web lint
-  pnpm --dir web typecheck
+echo "==> admin-ui lint/typecheck (if pnpm available)"
+if command -v pnpm >/dev/null 2>&1 && [[ -d plugins/admin-ui/node_modules ]]; then
+  pnpm --dir plugins/admin-ui lint
+  pnpm --dir plugins/admin-ui typecheck
 else
-  echo "skip: pnpm or web/node_modules missing"
+  echo "skip: pnpm or plugins/admin-ui/node_modules missing"
 fi
 
 echo "OK: local checks passed"

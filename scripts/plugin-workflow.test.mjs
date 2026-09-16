@@ -1,10 +1,16 @@
 import assert from "node:assert/strict"
-import { mkdtemp, readFile, rm } from "node:fs/promises"
+import { access, constants, mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { resolve } from "node:path"
 import test from "node:test"
 
 import { buildPlugin, loadWorkflow, validateRepositoryWorkflow, validateWorkflow, workflowMatrix } from "./plugin-workflow.mjs"
+
+test("admin-ui frontend lives in the plugin directory", async () => {
+  await access(resolve("plugins/admin-ui/package.json"), constants.F_OK)
+  await access(resolve("plugins/admin-ui/src"), constants.F_OK)
+  await assert.rejects(() => access(resolve("web/package.json"), constants.F_OK))
+})
 
 test("plugin workflow definitions drive build and smoke matrices", async () => {
   const workflow = await loadWorkflow()

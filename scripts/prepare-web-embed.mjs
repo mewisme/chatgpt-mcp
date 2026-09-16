@@ -24,11 +24,11 @@ Compatibility helper that builds the Admin UI plugin. It no longer embeds assets
 }
 
 if (!options.fromDist) {
-  if (options.installDeps) runPnpm(["--dir", "web", "install", "--frozen-lockfile"])
-  runPnpm(["--dir", "web", "build"])
+  if (options.installDeps) runPnpm(["--dir", "plugins/admin-ui", "install", "--frozen-lockfile"])
+  runPnpm(["--dir", "plugins/admin-ui", "build"])
 }
-await requireFile("web/dist/index.html")
-run(process.platform === "win32" ? "go.exe" : "go", ["run", "./plugins/admin-ui/build", "--source-root", "web/dist", "--output", options.output])
+await requireFile("plugins/admin-ui/dist/index.html")
+run(process.platform === "win32" ? "go.exe" : "go", ["run", "./plugins/admin-ui/build", "--source-root", "plugins/admin-ui/dist", "--output", options.output])
 
 async function requireFile(relative) {
   try {

@@ -52,6 +52,36 @@ type ToastMsg struct {
 	Tone    component.Tone
 }
 
+type OperationPhase string
+
+const (
+	OperationPending   OperationPhase = "pending"
+	OperationSuccess   OperationPhase = "success"
+	OperationError     OperationPhase = "error"
+	OperationCancelled OperationPhase = "cancelled"
+)
+
+type OperationMsg struct {
+	Key     string
+	Phase   OperationPhase
+	Title   string
+	Message string
+	Tone    component.Tone
+}
+
+func OperationStarted(key, title, message string) tea.Cmd {
+	return func() tea.Msg {
+		return OperationMsg{Key: key, Phase: OperationPending, Title: title, Message: message, Tone: component.ToneAccent}
+	}
+}
+
+func OperationResult(key, title, message string, err error) tea.Msg {
+	if err != nil {
+		return OperationMsg{Key: key, Phase: OperationError, Title: title, Message: strings.TrimSpace(err.Error()), Tone: component.ToneDanger}
+	}
+	return OperationMsg{Key: key, Phase: OperationSuccess, Title: title, Message: message, Tone: component.ToneSuccess}
+}
+
 func pageFeedbackHeight(value string) int {
 	if strings.TrimSpace(value) == "" {
 		return 0

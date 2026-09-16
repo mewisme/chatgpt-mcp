@@ -1748,7 +1748,7 @@ func TestModelToastMouseHoverOutsideAndClose(t *testing.T) {
 	model = updated.(Model)
 	updated, _ = model.Update(tuipage.ToastMsg{Title: "Update", Message: "done", Tone: component.ToneSuccess})
 	model = updated.(Model)
-	dialog := component.NewToastDialog(model.toast.title, model.toast.message, model.toast.tone)
+	dialog := model.toastDialog()
 	modalWidth := min(72, model.width-4)
 	foreground := component.Modal(dialog.ViewWidth(component.ModalContentWidth(modalWidth)), modalWidth)
 	_, x, y := component.CenteredOverlayTargets(foreground, model.width, model.height, 0, 0, 299, toastCloseMsg{})
@@ -1788,7 +1788,7 @@ func TestModelToastMouseHoverOutsideAndClose(t *testing.T) {
 	}
 	updated, _ = model.Update(tuipage.ToastMsg{Title: "Update", Message: "done", Tone: component.ToneSuccess})
 	model = updated.(Model)
-	dialog = component.NewToastDialog(model.toast.title, model.toast.message, model.toast.tone)
+	dialog = model.toastDialog()
 	modalWidth = min(72, model.width-4)
 	foreground = component.Modal(dialog.ViewWidth(component.ModalContentWidth(modalWidth)), modalWidth)
 	_, x, y = component.CenteredOverlayTargets(foreground, model.width, model.height, 0, 0, 299, toastCloseMsg{})
@@ -1876,5 +1876,75 @@ func TestApprovalDialogWrapsLongArgumentsWithoutTruncation(t *testing.T) {
 	plain := ansi.Strip(view)
 	if strings.Count(plain, "z") < len(token)*5 {
 		t.Fatalf("approval content was truncated: %q", plain)
+	}
+}
+
+func TestModelOperationDialogPendingDoesNotAutoHide(t *testing.T) {
+	model := NewModel(Route{Kind: RouteRuntime})
+	updated, cmd := model.Update(tuipage.OperationMsg{Key: "save", Phase: tuipage.OperationPending, Title: "Saving", Message: "Saving admin profile..."})
+	model = updated.(Model)
+	if cmd != nil || model.toast.id == 0 || model.toast.phase != tuipage.OperationPending {
+		t.Fatalf("pending started timer: toast=%#v cmd=%v", model.toast, cmd)
+	}
+	id, timer := model.toast.id, model.toast.timer
+	updated, _ = model.Update(toastDismissMsg{id: id, timer: timer})
+	model = updated.(Model)
+	if model.toast.id != id {
+		t.Fatal("pending dialog auto-hid")
+	}
+	updated, cmd = model.Update(tea.KeyPressMsg{Code: tea.KeyEsc, Text: "esc"})
+	model = updated.(Model)
+	if cmd != nil || model.toast.id != id {
+		t.Fatalf("esc dismissed pending: toast=%#v", model.toast)
+	}
+	updated, cmd = model.Update(tuipage.OperationMsg{Key: "save", Phase: tuipage.OperationSuccess, Title: "Saved", Message: "Admin profile saved", Tone: component.ToneSuccess})
+	model = updated.(Model)
+	if cmd == nil || model.toast.id != id || model.toast.phase != tuipage.OperationSuccess || model.toast.message != "Admin profile saved" {
+		t.Fatalf("success did not reuse dialog: toast=%#v cmd=%v", model.toast, cmd)
+	}
+}
+
+func TestModelOperationDialogPinBlocksStaleTimer(t *testing.T) {
+	model := NewModel(Route{Kind: RouteRuntime})
+	updated, _ := model.Update(tuipage.OperationMsg{Key: "save", Phase: tuipage.OperationSuccess, Title: "Saved", Message: "done", Tone: component.ToneSuccess})
+	model = updated.(Model)
+	id, timer := model.toast.id, model.toast.timer
+	updated, cmd := model.Update(tea.KeyPressMsg{Text: "p", Code: 'p'})
+	model = updated.(Model)
+	if cmd != nil || !model.toast.pinned || model.toast.timer == timer {
+		t.Fatalf("pin failed: toast=%#v cmd=%v", model.toast, cmd)
+	}
+	updated, _ = model.Update(toastDismissMsg{id: id, timer: timer})
+	model = updated.(Model)
+	if model.toast.id != id {
+		t.Fatal("stale timer dismissed pinned dialog")
+	}
+	updated, cmd = model.Update(tea.KeyPressMsg{Text: "p", Code: 'p'})
+	model = updated.(Model)
+	if cmd == nil || model.toast.pinned {
+		t.Fatalf("unpin did not restart timer: toast=%#v cmd=%v", model.toast, cmd)
+	}
+	updated, _ = model.Update(toastDismissMsg{id: model.toast.id, timer: model.toast.timer})
+	model = updated.(Model)
+	if model.toast.id != 0 {
+		t.Fatalf("unpinned timer did not dismiss: %#v", model.toast)
+	}
+}
+
+func TestModelOperationDialogIgnoresStaleKey(t *testing.T) {
+	model := NewModel(Route{Kind: RouteRuntime})
+	updated, _ := model.Update(tuipage.OperationMsg{Key: "save", Phase: tuipage.OperationPending, Title: "Saving", Message: "Saving..."})
+	model = updated.(Model)
+	id := model.toast.id
+	updated, _ = model.Update(tuipage.OperationMsg{Key: "other", Phase: tuipage.OperationError, Title: "Error", Message: "stale", Tone: component.ToneDanger})
+	model = updated.(Model)
+	if model.toast.id != id || model.toast.phase != tuipage.OperationPending {
+		t.Fatalf("stale error replaced pending: %#v", model.toast)
+	}
+	model.currentPage = &statusNoticeTestPage{}
+	updated, cmd := model.updatePage(noticeTestMsg("Live stream disconnected; reconnecting"))
+	model = updated.(Model)
+	if cmd != nil || model.toast.phase != tuipage.OperationPending || model.toast.id != id {
+		t.Fatalf("status replaced pending: toast=%#v cmd=%v", model.toast, cmd)
 	}
 }

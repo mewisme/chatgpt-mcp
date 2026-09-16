@@ -3,9 +3,11 @@ package component
 import "strings"
 
 type ToastDialog struct {
-	Title   string
-	Message string
-	Tone    Tone
+	Title     string
+	Message   string
+	Tone      Tone
+	Footer    string
+	HideClose bool
 }
 
 func NewToastDialog(title, message string, tone Tone) ToastDialog {
@@ -30,10 +32,26 @@ func (dialog ToastDialog) ViewWidth(width int) string {
 	if width > 0 {
 		message = WrapContent(message, width)
 	}
-	if message == "" {
-		return heading + "\n\n" + dialog.CloseButtonView()
+	parts := []string{heading}
+	if message != "" {
+		parts = append(parts, "", message)
 	}
-	return heading + "\n\n" + message + "\n\n" + dialog.CloseButtonView()
+	footer := strings.TrimSpace(dialog.Footer)
+	close := ""
+	if !dialog.HideClose {
+		close = dialog.CloseButtonView()
+	}
+	if footer != "" || close != "" {
+		parts = append(parts, "")
+		if footer != "" && close != "" {
+			parts = append(parts, footer+" · "+close)
+		} else if footer != "" {
+			parts = append(parts, footer)
+		} else {
+			parts = append(parts, close)
+		}
+	}
+	return strings.Join(parts, "\n")
 }
 
 func (dialog ToastDialog) CloseButtonView() string { return Button("Close") }
